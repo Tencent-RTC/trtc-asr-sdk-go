@@ -17,6 +17,15 @@ jobs:
         # customer on any of them gets a build we actually verified.
         go: ["1.21", "1.22", "1.23"]
         os: [ubuntu-latest, macos-latest]
+        # Go <=1.22 is EOL and predates current macOS: its cgo-linked binaries
+        # (any package importing net, and -race which forces cgo) come out of
+        # the linker without LC_UUID and dyld aborts them on macos-latest.
+        # Those Go versions keep full gofmt/vet/build/race coverage on ubuntu.
+        exclude:
+          - os: macos-latest
+            go: "1.21"
+          - os: macos-latest
+            go: "1.22"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
