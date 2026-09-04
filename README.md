@@ -6,11 +6,12 @@
 
 ## 前提条件
 
-使用本 SDK 前，您需要：
+使用本 SDK 前，您需要准备三个凭证：`AppID`、`SDKAppID`、`SecretKey`。国内站与国际站的账号体系不同，请按您的站点参照官方快速接入指南完成注册、创建应用与服务开通：
 
-1. **获取腾讯云 APPID** — 在 [CAM API 密钥管理](https://console.cloud.tencent.com/cam/capi) 页面查看
-2. **创建 TRTC 应用** — 在 [实时音视频控制台](https://console.cloud.tencent.com/trtc/app) 创建应用，获取 `SDKAppID`
-3. **获取 SDK 密钥** — 在应用概览页点击「SDK密钥」查看密钥，即用于计算 UserSig 的加密密钥
+- **国内站**：[快速接入指南](https://xai.cloud-rtc.com/#gettingStarted) — 注册腾讯云账号并完成实名认证 → 在 [TRTC 控制台](https://console.cloud.tencent.com/trtc/app)创建应用 → 开通「AI 智能识别」（体验版可免费试用）
+- **国际站**：[Quick Start](https://xai-intl.cloud-rtc.com/#gettingStarted) — 在 [trtc.io](https://www.trtc.io) 注册（自动开通 Tencentcloud 账号，无需实名认证）→ 在 [console.trtc.io](https://console.trtc.io) 创建应用 → 开通「AI Speech Recognition」（仅 RTC Engine Lite 及以上包月套餐，Free Trial 不支持）
+
+> **注意**：国际站的 `AppID` 不在 trtc.io 控制台显示，需在 Tencentcloud 控制台「账号信息」页查看（头像 → Account Information）；`SDKAppID` 与 `SecretKey` 均在应用详情页获取。
 
 ## 协议说明
 
@@ -450,11 +451,11 @@ func main() {
 
 ## 凭证获取
 
-| 参数 | 来源 | 说明 |
-|------|------|------|
-| `AppID` | [CAM 密钥管理](https://console.cloud.tencent.com/cam/capi) | 腾讯云账号 APPID，用于 URL 路径 |
-| `SDKAppID` | [TRTC 控制台](https://console.cloud.tencent.com/trtc/app) > 应用管理 | TRTC 应用 ID |
-| `SecretKey` | [TRTC 控制台](https://console.cloud.tencent.com/trtc/app) > 应用概览 > SDK密钥 | 用于生成 UserSig，不会传输到网络 |
+| 参数 | 国内站 | 国际站 | 说明 |
+|------|--------|--------|------|
+| `AppID` | [CAM 密钥管理](https://console.cloud.tencent.com/cam/capi) | Tencentcloud 控制台「账号信息」（trtc.io 不显示） | 腾讯云账号 APPID，用于 URL 路径 |
+| `SDKAppID` | [TRTC 控制台](https://console.cloud.tencent.com/trtc/app) > 应用管理 | [console.trtc.io](https://console.trtc.io) > 应用详情 | TRTC 应用 ID |
+| `SecretKey` | [TRTC 控制台](https://console.cloud.tencent.com/trtc/app) > 应用概览 > SDK密钥 | [console.trtc.io](https://console.trtc.io) > 应用详情 | 用于生成 UserSig，不会传输到网络 |
 
 ## 配置项
 
