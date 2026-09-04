@@ -7,6 +7,8 @@
 
 ## [未发布]
 
+## [1.1.0] - 2026-09-04
+
 ### 变更
 
 - 仓库迁移至 `github.com/Tencent-RTC/trtc-asr-sdk-go`，Go module path 同步变更；
