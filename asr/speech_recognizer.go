@@ -20,9 +20,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Tencent-RTC/trtc-asr-sdk-go/common"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/hydah/trtc-asr-sdk-go/common"
 )
 
 // Endpoint is the production WebSocket endpoint for the TRTC-ASR service.

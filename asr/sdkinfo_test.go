@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/hydah/trtc-asr-sdk-go/common"
+	"github.com/Tencent-RTC/trtc-asr-sdk-go/common"
 )
 
 // assertSDKReportParams checks that a captured request query carries the SDK

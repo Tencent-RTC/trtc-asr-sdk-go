@@ -25,8 +25,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Tencent-RTC/trtc-asr-sdk-go/common"
 	"github.com/google/uuid"
-	"github.com/hydah/trtc-asr-sdk-go/common"
 )
 
 // FileEndpoint is the production HTTPS endpoint for audio file recognition.

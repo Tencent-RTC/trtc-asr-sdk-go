@@ -2,7 +2,7 @@
 
 基于 TRTC 鉴权体系的语音识别（ASR）Go SDK，支持实时语音识别（WebSocket）、一句话识别（HTTP）和录音文件识别（异步 HTTP）三种模式。
 
-> 其他语言 SDK：[Python](https://github.com/hydah/trtc-asr-sdk-python) | [Node.js](https://github.com/hydah/trtc-asr-sdk-nodejs) | [Java](https://github.com/hydah/trtc-asr-sdk-java) | [Rust](https://github.com/hydah/trtc-asr-sdk-rust) | [C++](https://github.com/hydah/trtc-asr-sdk-cpp)
+> 其他语言 SDK：[Python](https://github.com/Tencent-RTC/trtc-asr-sdk-python) | [Node.js](https://github.com/Tencent-RTC/trtc-asr-sdk-nodejs) | [Java](https://github.com/Tencent-RTC/trtc-asr-sdk-java) | [Rust](https://github.com/Tencent-RTC/trtc-asr-sdk-rust) | [C++](https://github.com/Tencent-RTC/trtc-asr-sdk-cpp)
 
 ## 前提条件
 
@@ -282,7 +282,7 @@ HTTP 接口的鉴权信息携带在请求 Header 中（与流式不同，不走 
 ## 安装
 
 ```bash
-go get github.com/hydah/trtc-asr-sdk-go@latest
+go get github.com/Tencent-RTC/trtc-asr-sdk-go@latest
 ```
 
 **要求**：Go 1.21+
@@ -300,8 +300,8 @@ import (
     "os"
     "time"
 
-    "github.com/hydah/trtc-asr-sdk-go/asr"
-    "github.com/hydah/trtc-asr-sdk-go/common"
+    "github.com/Tencent-RTC/trtc-asr-sdk-go/asr"
+    "github.com/Tencent-RTC/trtc-asr-sdk-go/common"
 )
 
 // 只需实现关心的回调；其余事件嵌入 UnimplementedSpeechRecognitionListener 即可。
@@ -366,8 +366,8 @@ import (
     "log"
     "os"
 
-    "github.com/hydah/trtc-asr-sdk-go/asr"
-    "github.com/hydah/trtc-asr-sdk-go/common"
+    "github.com/Tencent-RTC/trtc-asr-sdk-go/asr"
+    "github.com/Tencent-RTC/trtc-asr-sdk-go/common"
 )
 
 func main() {
@@ -407,8 +407,8 @@ import (
     "os"
     "time"
 
-    "github.com/hydah/trtc-asr-sdk-go/asr"
-    "github.com/hydah/trtc-asr-sdk-go/common"
+    "github.com/Tencent-RTC/trtc-asr-sdk-go/asr"
+    "github.com/Tencent-RTC/trtc-asr-sdk-go/common"
 )
 
 func main() {

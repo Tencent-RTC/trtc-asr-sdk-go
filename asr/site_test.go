@@ -3,7 +3,7 @@ package asr
 import (
 	"testing"
 
-	"github.com/hydah/trtc-asr-sdk-go/common"
+	"github.com/Tencent-RTC/trtc-asr-sdk-go/common"
 )
 
 func TestRecognizersResolveSiteEndpoints(t *testing.T) {

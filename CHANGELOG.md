@@ -7,6 +7,13 @@
 
 ## [未发布]
 
+### 变更
+
+- 仓库迁移至 `github.com/Tencent-RTC/trtc-asr-sdk-go`，Go module path 同步变更；
+  下游用户需将 import 路径与 `go get` 从 `github.com/hydah/trtc-asr-sdk-go`
+  替换为 `github.com/Tencent-RTC/trtc-asr-sdk-go`。功能与 API 无任何变化。
+  旧仓库保留 `v1.0.0` 并归档，不再更新。
+
 ## [1.0.0] - 2026-09-02
 
 首个正式版本。

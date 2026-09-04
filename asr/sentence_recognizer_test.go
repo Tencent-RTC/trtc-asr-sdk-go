@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hydah/trtc-asr-sdk-go/common"
+	"github.com/Tencent-RTC/trtc-asr-sdk-go/common"
 )
 
 func newTestCredential() *common.Credential {

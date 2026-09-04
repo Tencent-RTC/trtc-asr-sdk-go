@@ -25,8 +25,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hydah/trtc-asr-sdk-go/asr"
-	"github.com/hydah/trtc-asr-sdk-go/common"
+	"github.com/Tencent-RTC/trtc-asr-sdk-go/asr"
+	"github.com/Tencent-RTC/trtc-asr-sdk-go/common"
 )
 
 // ===== Configuration =====

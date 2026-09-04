@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/hydah/trtc-asr-sdk-go/common"
+	"github.com/Tencent-RTC/trtc-asr-sdk-go/common"
 )
 
 // Server-side accepted ranges, kept in one place so streaming and file

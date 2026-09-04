@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tencent-RTC/trtc-asr-sdk-go/common"
 	"github.com/gorilla/websocket"
-	"github.com/hydah/trtc-asr-sdk-go/common"
 )
 
 type failEvent struct {
