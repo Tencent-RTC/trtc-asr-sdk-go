@@ -21,7 +21,7 @@
   - 国内站：`wss://asr.cloud-rtc.com/asr/v2/<appid>?{请求参数}`
   - 国际站：`wss://asr-intl.cloud-rtc.com/asr/v2/<appid>?{请求参数}`（`credential.SetSite(common.SiteIntl)`）
 
-其中 `<appid>` 为腾讯云账号的 APPID，可通过 [API 密钥管理页面](https://console.cloud.tencent.com/cam/capi) 获取。
+其中 `<appid>` 为腾讯云账号的 APPID，国内站可通过 [API 密钥管理页面](https://console.cloud.tencent.com/cam/capi) 获取，国际站见 Tencentcloud 控制台「账号信息」。
 
 ### 鉴权方式
 
@@ -29,7 +29,7 @@
 
 | 参数 | 说明 |
 |------|------|
-| `sdkappid` | TRTC 应用 ID，从 [TRTC 控制台](https://console.cloud.tencent.com/trtc/app) 获取 |
+| `sdkappid` | TRTC 应用 ID，从 TRTC 控制台获取（[国内站](https://console.cloud.tencent.com/trtc/app) / [国际站](https://console.trtc.io)） |
 | `usersig` | TRTC 签名，[计算文档](https://cloud.tencent.com/document/product/647/17275)，UserID 等于 `voice_id` |
 
 两者均由 SDK 自动填充，用户无需关心。
@@ -158,7 +158,7 @@ HTTP 接口的鉴权信息携带在请求 Header 中（与流式不同，不走 
 
 | Header | 说明 |
 |--------|------|
-| `X-TRTC-SdkAppId` | TRTC 应用 ID，从 [TRTC 控制台](https://console.cloud.tencent.com/trtc/app) 获取 |
+| `X-TRTC-SdkAppId` | TRTC 应用 ID，从 TRTC 控制台获取（[国内站](https://console.cloud.tencent.com/trtc/app) / [国际站](https://console.trtc.io)） |
 | `X-TRTC-UserSig` | TRTC 签名，UserID 等于 URL 参数中的 `RequestId`（SDK 内部自动生成） |
 
 #### URL 请求参数
@@ -578,8 +578,8 @@ trtc-asr-sdk-go/
 
 ### APPID 和 SDKAppID 有什么区别？
 
-- **APPID**（如 `13xxxxxxxx`）：腾讯云账号级别的 ID，从 [CAM 密钥管理](https://console.cloud.tencent.com/cam/capi) 获取，用于 WebSocket URL 路径
-- **SDKAppID**（如 `14xxxxxxxx`）：TRTC 应用级别的 ID，从 [TRTC 控制台](https://console.cloud.tencent.com/trtc/app) 获取，用于鉴权（SDK 自动填入 URL query 的 `sdkappid`）
+- **APPID**（如 `13xxxxxxxx`）：腾讯云账号级别的 ID，用于 WebSocket URL 路径；国内站从 [CAM 密钥管理](https://console.cloud.tencent.com/cam/capi) 获取，国际站见 Tencentcloud 控制台「账号信息」
+- **SDKAppID**（如 `14xxxxxxxx`）：TRTC 应用级别的 ID，用于鉴权（SDK 自动填入 URL query 的 `sdkappid`）；国内站从 [TRTC 控制台](https://console.cloud.tencent.com/trtc/app) 获取，国际站从 [console.trtc.io](https://console.trtc.io) 获取
 
 ### UserSig 是什么？
 
