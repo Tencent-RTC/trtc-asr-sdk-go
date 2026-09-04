@@ -4,16 +4,16 @@ import "fmt"
 
 // Error codes for TRTC-ASR SDK.
 const (
-	ErrCodeInvalidParam    = 1001
-	ErrCodeConnectFailed   = 1002
-	ErrCodeWriteFailed     = 1003
-	ErrCodeReadFailed      = 1004
-	ErrCodeAuthFailed      = 1005
-	ErrCodeTimeout         = 1006
-	ErrCodeServerError     = 1007
-	ErrCodeAlreadyStarted  = 1008
-	ErrCodeNotStarted      = 1009
-	ErrCodeAlreadyStopped  = 1010
+	ErrCodeInvalidParam   = 1001
+	ErrCodeConnectFailed  = 1002
+	ErrCodeWriteFailed    = 1003
+	ErrCodeReadFailed     = 1004
+	ErrCodeAuthFailed     = 1005
+	ErrCodeTimeout        = 1006
+	ErrCodeServerError    = 1007
+	ErrCodeAlreadyStarted = 1008
+	ErrCodeNotStarted     = 1009
+	ErrCodeAlreadyStopped = 1010
 )
 
 // ASRError represents an error returned by the TRTC-ASR service or SDK.
