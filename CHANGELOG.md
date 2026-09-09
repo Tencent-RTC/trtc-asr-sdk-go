@@ -7,6 +7,8 @@
 
 ## [未发布]
 
+## [1.2.0] - 2026-09-09
+
 ### 新增
 
 - 新增 v3 协议客户端，位于独立子包 `asr/v3`（`github.com/Tencent-RTC/trtc-asr-sdk-go/asr/v3`），
