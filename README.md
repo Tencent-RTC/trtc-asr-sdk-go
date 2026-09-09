@@ -1,5 +1,6 @@
 # TRTC-ASR Go SDK
 
+> [English](./README.en.md) | 中文
 基于 TRTC 鉴权体系的语音识别（ASR）Go SDK（**v3 协议**），支持实时语音识别（WebSocket）、一句话识别（HTTP）和录音文件识别（异步 HTTP）三种模式。
 
 > 旧版 v2 / v1 协议客户端（`asr` 包）继续维护、存量可用，文档见 [docs/v2_protocol.md](./docs/v2_protocol.md)。
