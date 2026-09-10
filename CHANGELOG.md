@@ -7,6 +7,16 @@
 
 ## [未发布]
 
+## [1.2.1] - 2026-09-10
+
+### 变更
+
+- README 鉴权章节按**在线（流式）/ 离线（HTTP）**拆分，各自给出 `auth` 字段表，
+  并补充 UserSig 规则：identifier 绑定（在线 `voice_id` / 离线 `request_id`）、
+  自动签名有效期 86400 秒且每条连接 / 每次请求重新生成、调用 `credential.SetUserSig()`
+  传入固定签名后不再刷新、签名与站点（`credential.SetSite(common.SiteIntl)`）绑定。
+  中英文 README 同步。
+
 ## [1.2.0] - 2026-09-09
 
 ### 新增
