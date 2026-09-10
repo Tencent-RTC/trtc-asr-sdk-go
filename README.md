@@ -31,10 +31,30 @@
 
 v3 把请求拆成两个正交的块，字段全程 snake_case：
 
-- `auth`：身份与签名 —— `sdkappid`（string）、`usersig`（TRTC 签名，identifier 在线 = `voice_id`、离线 = `request_id`）、`request_id`（离线，SDK 自动生成 uuid）。
-- `params`：业务识别参数（引擎、VAD、热词、过滤等），snake_case。
+- `auth`：身份与签名，由网关鉴权层消费——**在线与离线的字段不同，分别见下**。
+- `params`：业务识别参数（引擎、VAD、热词、过滤等），snake_case，字段与 v2 在线 query 同名。
 
-在线：WebSocket 建连后 **3 秒内**发送首帧 JSON：
+两块共用同一套签名规则：
+
+- 未调用 `credential.SetUserSig()` 时，SDK 用 `SDKAppID + SecretKey` 本地生成，**有效期 86400 秒**，且每条连接 / 每次请求都重新生成——长跑服务无需自己管理过期。
+- 调用 `credential.SetUserSig(sig)` 传入固定签名后，SDK **不再生成也不再刷新**：服务端用当前 identifier（在线 `voice_id`、离线 `request_id`）验签，因此签名必须用同一个 identifier 签发；固定签名场景（如浏览器端由业务后端下发签名）需自行处理过期与 identifier 对齐。
+- 签名与站点绑定：`credential.SetSite(common.SiteIntl)` 决定 host 和验签集群，国际站的凭证不要用于国内站（反之亦然）。
+- `SecretKey` 不会传输到网络，签名只用于服务端验签。
+
+#### 在线（流式）鉴权
+
+一条 WebSocket 连接 = 一条流，`voice_id` 既是流身份、也是签名 identifier（URL 与 `params` 都带它，`auth` 块里不再重复）。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `sdkappid` | string | 是 | TRTC 应用 ID，取自 credential，SDK 自动填写 |
+| `usersig` | string | 是 | TRTC 签名，identifier = 当前 `voice_id`（SDK 按该值签发） |
+
+- **在线没有 `request_id`**：request_id 是离线「一次请求 = 一个事务」的概念（见下），流式协议里不存在。
+- `voice_id` 同时出现在 URL `?voice_id=` 与 `params.voice_id`（两者一致或省略），≤128 字符；SDK 默认生成 uuid，可用 `SetVoiceID` 指定；与活跃流冲突会返回 `4001`。
+- 一条流一个签名，随连接生成；重连即重签，不需要自己维护有效期。
+
+WebSocket 建连后 **3 秒内**发送首帧 JSON：
 
 ```json
 {
@@ -47,7 +67,17 @@ v3 把请求拆成两个正交的块，字段全程 snake_case：
 鉴权通过后服务端回 `{"code":0,"message":"success","voice_id":"..."}`，之后上行 binary 音频帧、
 结束发 `{"type":"end"}`。SDK 的 `Start()` 会**同步等待这个 ack**，鉴权/参数错误直接从 `Start()` 返回。
 
-离线：HTTP POST body 为对称的 `{"auth":{...},"params":{...}}`，响应扁平化（无 `Response` 外壳）：
+#### 离线（HTTP）鉴权
+
+每次 HTTP 请求是一个独立事务，`request_id` 既是单次请求 ID、也是签名 identifier（调用方无需自己生成）。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `sdkappid` | string | 是 | TRTC 应用 ID，取自 credential，SDK 自动填写 |
+| `usersig` | string | 是 | TRTC 签名，identifier = 本次请求的 `request_id`（SDK 按该值签发） |
+| `request_id` | string | 是 | 单次请求 ID，SDK 每次请求自动生成 uuid；响应原样回显、`callback_url` 回调也会带回，是离线对账与排障的钥匙（SDK 不支持自定义） |
+
+HTTP POST body 为对称的 `{"auth":{...},"params":{...}}`，响应扁平化（无 `Response` 外壳）：
 
 ```json
 {"code": 0, "message": "success", "request_id": "req-uuid", "result": "识别文本", "audio_duration": 1234}
