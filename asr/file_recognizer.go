@@ -215,10 +215,44 @@ type SentenceDetail struct {
 }
 
 // SentenceWords contains word-level timing information within a sentence.
+//
+// The offsets are milliseconds relative to the start of the audio. On the wire
+// the server spells them StartTime / EndTime; the older OffsetStartMs /
+// OffsetEndMs spelling is accepted as a fallback.
 type SentenceWords struct {
 	Word          string `json:"Word"`
 	OffsetStartMs int    `json:"OffsetStartMs"`
 	OffsetEndMs   int    `json:"OffsetEndMs"`
+}
+
+// UnmarshalJSON accepts both wire spellings of the word offsets.
+func (w *SentenceWords) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Word          string `json:"Word"`
+		StartTime     *int   `json:"StartTime"`
+		EndTime       *int   `json:"EndTime"`
+		OffsetStartMs *int   `json:"OffsetStartMs"`
+		OffsetEndMs   *int   `json:"OffsetEndMs"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	w.Word = raw.Word
+	w.OffsetStartMs = firstInt(raw.StartTime, raw.OffsetStartMs)
+	w.OffsetEndMs = firstInt(raw.EndTime, raw.OffsetEndMs)
+	return nil
+}
+
+// firstInt returns the first non-nil value, so an explicit zero in the primary
+// key is not overridden by the fallback.
+func firstInt(primary, fallback *int) int {
+	if primary != nil {
+		return *primary
+	}
+	if fallback != nil {
+		return *fallback
+	}
+	return 0
 }
 
 // apiError is used to parse error responses from the server.

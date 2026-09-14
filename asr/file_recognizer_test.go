@@ -525,3 +525,35 @@ func TestFileRecognizer_CreateTaskFromDataWithOptions(t *testing.T) {
 		t.Errorf("unexpected task ID: %s", taskID)
 	}
 }
+
+// TestSentenceWords_WireSpellings pins word-level offset parsing: the server
+// returns StartTime / EndTime, while OffsetStartMs / OffsetEndMs is kept as a
+// fallback. An explicit zero must not fall through to the fallback key.
+func TestSentenceWords_WireSpellings(t *testing.T) {
+	cases := []struct {
+		name  string
+		raw   string
+		start int
+		end   int
+	}{
+		{"server spelling", `{"Word":"今","StartTime":20,"EndTime":40}`, 20, 40},
+		{"fallback spelling", `{"Word":"今","OffsetStartMs":120,"OffsetEndMs":640}`, 120, 640},
+		{"explicit zero", `{"Word":"今","StartTime":0,"EndTime":160}`, 0, 160},
+		{"missing offsets", `{"Word":"今"}`, 0, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var w SentenceWords
+			if err := json.Unmarshal([]byte(tc.raw), &w); err != nil {
+				t.Fatalf("Unmarshal failed: %v", err)
+			}
+			if w.Word != "今" {
+				t.Errorf("Word = %q, want 今", w.Word)
+			}
+			if w.OffsetStartMs != tc.start || w.OffsetEndMs != tc.end {
+				t.Errorf("offsets = %d/%d, want %d/%d",
+					w.OffsetStartMs, w.OffsetEndMs, tc.start, tc.end)
+			}
+		})
+	}
+}
