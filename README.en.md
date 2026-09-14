@@ -17,8 +17,6 @@ Two credentials are needed: `SdkAppID` and `SecretKey`. The domestic and interna
 - **China site**: [Quick Start](https://xai.cloud-rtc.com/#gettingStarted) — register a Tencent Cloud account and complete real-name verification → create an application in the [TRTC console](https://console.cloud.tencent.com/trtc/app) → activate "AI Speech Recognition" (free trial available)
 - **International site**: [Quick Start](https://xai-intl.cloud-rtc.com/#gettingStarted) — register at [trtc.io](https://www.trtc.io) (a Tencentcloud account is created automatically, no real-name verification) → create an application at [console.trtc.io](https://console.trtc.io) → activate "AI Speech Recognition" (RTC Engine Lite or above only; Free Trial is not supported)
 
-> **v3 availability**: the four v3 endpoints are gated by the server-side `EnableV3Route` switch (per SdkAppID). While it is off, the realtime endpoint answers `4001` and the HTTP endpoints answer `404`. Ask the service team to enable it for your SdkAppID before integrating.
-
 ## Protocol (v3)
 
 ### Endpoints
