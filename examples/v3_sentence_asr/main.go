@@ -29,6 +29,7 @@ func main() {
 	file := flag.String("f", "../test.pcm", "audio file path (<=60s, <=3MB)")
 	format := flag.String("format", "pcm", "audio format: wav|pcm|ogg-opus|mp3|m4a")
 	wordInfo := flag.Int("word-info", 0, "word-level timestamps: 0=off, 1=on, 2=with punctuation")
+	lang := flag.String("lang", "", "language hint; when omitted, the bigmodel engine uses zh")
 	flag.Parse()
 
 	sdkAppID, _ := strconv.Atoi(os.Getenv("TRTC_ASR_SDK_APP_ID"))
@@ -36,9 +37,19 @@ func main() {
 	if sdkAppID == 0 || secretKey == "" {
 		log.Fatal("Set TRTC_ASR_SDK_APP_ID and TRTC_ASR_SECRET_KEY first.")
 	}
-	engine := "16k_zh_en"
+	engine := ""
 	if flag.NArg() > 0 {
 		engine = flag.Arg(0)
+	}
+	if engine == "" {
+		fmt.Fprintln(os.Stderr, "error: engine argument is required (e.g. bigmodel)")
+		flag.Usage()
+		os.Exit(2)
+	}
+	// The bigmodel engine is best used with an explicit language; every other
+	// engine falls back to server-side detection unless -lang is given.
+	if *lang == "" && engine == "bigmodel" {
+		*lang = "zh"
 	}
 
 	// v3 credentials need only SdkAppID + SecretKey (no Tencent Cloud APPID).
@@ -50,17 +61,12 @@ func main() {
 		log.Fatalf("read audio failed: %v", err)
 	}
 
-	var resp *v3.TranscribeResponse
-	if *wordInfo != 0 {
-		// With word_info: use the full request form.
-		resp, err = recognizer.RecognizeDataWithOptions(data, &v3.TranscribeRequest{
-			EngineModelType: engine,
-			VoiceFormat:     *format,
-			WordInfo:        *wordInfo,
-		})
-	} else {
-		resp, err = recognizer.RecognizeData(data, *format, engine)
-	}
+	resp, err := recognizer.RecognizeDataWithOptions(data, &v3.TranscribeRequest{
+		EngineModelType: engine,
+		VoiceFormat:     *format,
+		WordInfo:        *wordInfo,
+		Language:        *lang,
+	})
 	if err != nil {
 		// Server codes (4xxx/5xxx) are carried on the error; 10xx codes are
 		// SDK-local.

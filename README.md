@@ -60,7 +60,7 @@ WebSocket 建连后 **3 秒内**发送首帧 JSON：
 {
   "type": "start",
   "auth": {"sdkappid": "1400000001", "usersig": "eJw..."},
-  "params": {"engine_model_type": "16k_zh_en", "voice_format": 1, "needvad": 1}
+  "params": {"engine_model_type": "bigmodel", "language": "zh", "voice_format": 1, "needvad": 1}
 }
 ```
 
@@ -134,8 +134,8 @@ sequenceDiagram
 | 参数 | 类型 | 默认 | 说明 |
 |------|------|------|------|
 | `voice_id` | string | 取 URL | 流唯一标识（≤128 字符），与 URL 一致或省略 |
-| `engine_model_type` | string | `16k_zh_en` | 引擎模型 |
-| `language` | string | 空 | 识别语言（`zh`/`en`/`ja`…），空=自动检测 |
+| `engine_model_type` | string | **必填** | 引擎模型，无默认值，必填；示例取 `bigmodel`（推荐，配 `language`） |
+| `language` | string | 空 | 识别语言（`zh`/`en`/`ja`…），空=自动检测；`bigmodel` 建议显式指定（如 `zh`） |
 | `voice_format` | int | `1` | 音频格式：`1`pcm/`4`speex/`6`silk/`8`mp3/`10`opus/`11`ogg/`12`wav/`14`m4a/`16`aac |
 | `input_sample_rate` | int | 不传 | 仅 `8000`：声明 8k PCM 输入，配 16k 引擎升采样 |
 | `needvad` | int | 引擎相关 | `0` 关 / `1` 开 VAD |
@@ -200,7 +200,7 @@ sequenceDiagram
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `engine_model_type` | string | 是 | 引擎模型 |
+| `engine_model_type` | string | 是 | 引擎模型，必填；示例取 `bigmodel`（推荐，配 `language`） |
 | `source_type` | int | 是 | `0` URL 上传 / `1` 本地数据（base64） |
 | `voice_format` | string | 是 | 音频格式：`wav`、`pcm`、`ogg-opus`、`mp3`、`m4a` |
 | `url` | string | 条件 | 音频 URL（`source_type=0` 必填） |
@@ -261,7 +261,7 @@ sequenceDiagram
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `engine_model_type` | string | 是 | 引擎模型 |
+| `engine_model_type` | string | 是 | 引擎模型，必填；示例取 `bigmodel`（推荐，配 `language`） |
 | `channel_num` | int | 是 | 声道数：`1` 单声道；`2` 双声道（按 `channel_id` 出句，勿与分离同开） |
 | `res_text_format` | int | 是 | 结果格式：`0` 基础 / `1` 含词级时间 / `2` 含标点时间 |
 | `source_type` | int | 是 | `0` URL 上传 / `1` 本地数据（base64） |
@@ -372,7 +372,8 @@ sequenceDiagram
 Go 用法示例：
 
 ```go
-recognizer := v3.NewSpeechRecognizer(credential, "16k_zh_en", &MyListener{})
+recognizer := v3.NewSpeechRecognizer(credential, "bigmodel", &MyListener{})
+recognizer.SetLanguage("zh")                                      // bigmodel 建议显式指定语种
 recognizer.SetWordInfo(1)                                         // 需要字级说话人时开启
 recognizer.SetSpeakerDiarization(v3.SpeakerDiarizationCluster)     // 1：匿名聚类
 
@@ -443,7 +444,8 @@ func (l *MyListener) OnFail(resp *v3.SpeechRecognitionResponse, err error) {
     log.Printf("Failed: %v", err) // err 为 *common.ASRError，Code 即服务端错误码（4001/4002/...）
 }
 
-recognizer := v3.NewSpeechRecognizer(credential, "16k_zh_en", &MyListener{})
+recognizer := v3.NewSpeechRecognizer(credential, "bigmodel", &MyListener{})
+recognizer.SetLanguage("zh") // bigmodel 建议显式指定语种
 if err := recognizer.Start(); err != nil {
     log.Fatal(err) // 鉴权失败/参数非法在这里同步返回
 }
@@ -458,7 +460,11 @@ recognizer.Stop() // 发送 {"type":"end"} 并等待 final
 ```go
 recognizer := v3.NewSentenceRecognizer(credential)
 data, _ := os.ReadFile("audio.pcm")
-resp, err := recognizer.RecognizeData(data, "pcm", "16k_zh_en")
+resp, err := recognizer.RecognizeDataWithOptions(data, &v3.TranscribeRequest{
+    EngineModelType: "bigmodel",
+    VoiceFormat:     "pcm",
+    Language:        "zh",
+})
 if err != nil {
     log.Fatal(err)
 }
@@ -471,7 +477,14 @@ fmt.Println(resp.Result, resp.AudioDuration, resp.WordList)
 
 ```go
 recognizer := v3.NewFileRecognizer(credential)
-taskID, err := recognizer.CreateTaskFromURL("https://example.com/audio.wav", "16k_zh_en")
+taskID, err := recognizer.CreateTask(&v3.CreateTranscriptionRequest{
+    EngineModelType: "bigmodel",
+    ChannelNum:      1,
+    ResTextFormat:   1,
+    SourceType:      v3.SourceTypeURL,
+    URL:             "https://example.com/audio.wav",
+    Language:        "zh",
+})
 if err != nil {
     log.Fatal(err)
 }
@@ -525,9 +538,12 @@ fmt.Println(status.Result, status.AudioDuration, status.ResultDetail)
 
 | 类型 | 说明 |
 |------|------|
+| `bigmodel` | 大模型引擎，推荐；配合 `language` 指定语种（如 `zh`） |
 | `8k_zh` | 中文通用，常用于电话场景 |
-| `16k_zh` | 中文通用（推荐） |
+| `16k_zh` | 中文通用 |
 | `16k_zh_en` | 中英文通用 |
+
+> `bigmodel` 的 `language` 不只是提示：服务端按它选择后端模型（`zh` 走自研大模型，留空走通用链路）。示例默认 `bigmodel` + `zh`。
 
 ## 示例
 
@@ -537,24 +553,24 @@ fmt.Println(status.Result, status.AudioDuration, status.ResultDetail)
 
 ```bash
 cd examples/v3_realtime_asr
-go run main.go -f ../test.pcm
+go run main.go -e bigmodel -f ../test.pcm
 
 # 说话人分离（匿名聚类 + 字级说话人）
-go run main.go -f ../test.pcm -diarization 1 -word-info 1
+go run main.go -e bigmodel -f ../test.pcm -diarization 1 -word-info 1
 
 # 说话人分离（声纹角色认证，返回角色名）
-go run main.go -f ../test.pcm -diarization 3 \
+go run main.go -e bigmodel -f ../test.pcm -diarization 3 \
   -roles "teacher=https://example.com/teacher.wav,student=https://example.com/student.wav"
 
 # 查看所有选项
 go run main.go -h
 
 # 一句话识别
-cd ../v3_sentence_asr && go run main.go -f ../test.pcm -word-info 1
+cd ../v3_sentence_asr && go run main.go -e bigmodel -f ../test.pcm -word-info 1
 
 # 录音文件识别（URL / 本地文件 + 说话人分离）
 cd ../v3_file_asr
-go run main.go -u https://example.com/audio.wav -diarization 1
+go run main.go -e bigmodel -u https://example.com/audio.wav -diarization 1
 ```
 
 > v2 旧版示例（realtime_asr / sentence_asr / file_asr）见 [docs/v2_protocol.md](./docs/v2_protocol.md#示例)。

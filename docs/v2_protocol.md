@@ -47,7 +47,7 @@ v2 需要三个凭证：`AppID`、`SDKAppID`、`SecretKey`（v3 只需 `SDKAppID
 | `timestamp` | 是 | Integer | 当前 UNIX 时间戳（秒） |
 | `expired` | 是 | Integer | 签名有效期截止时间戳，必须大于 timestamp |
 | `nonce` | 是 | Integer | 随机正整数，最长10位 |
-| `engine_model_type` | 是 | String | 引擎类型：`8k_zh`(中文电话)、`16k_zh`(中文通用)、`16k_zh_en`(中英文) |
+| `engine_model_type` | 是 | String | 引擎类型：`bigmodel`(大模型，推荐，配 `language`)、`8k_zh`(中文电话)、`16k_zh`(中文通用)、`16k_zh_en`(中英文) |
 | `voice_id` | 是 | String | 音频流全局唯一标识（推荐 UUID），最长128位 |
 | `voice_format` | 否 | Integer | 语音编码：`1` PCM（默认） |
 | `needvad` | 否 | Integer | `0` 关闭 VAD，`1` 开启（默认） |
@@ -176,7 +176,7 @@ HTTP 接口的鉴权信息携带在请求 Header 中（与流式不同，不走 
 
 | 参数 | 必填 | 类型 | 说明 |
 |------|------|------|------|
-| `EngSerViceType` | 是 | String | 引擎类型：`16k_zh`(中文)、`16k_zh_en`(中英文) |
+| `EngSerViceType` | 是 | String | 引擎类型：`bigmodel`(大模型，推荐)、`16k_zh`(中文)、`16k_zh_en`(中英文) |
 | `SourceType` | 是 | Integer | `0` URL 上传、`1` 本地数据（base64） |
 | `VoiceFormat` | 是 | String | 音频格式：`wav`、`pcm`、`ogg-opus`、`mp3`、`m4a` |
 | `Data` | 条件 | String | base64 编码的音频数据（SourceType=1 时必填） |
@@ -213,7 +213,7 @@ HTTP 接口的鉴权信息携带在请求 Header 中（与流式不同，不走 
 
 | 参数 | 必填 | 类型 | 说明 |
 |------|------|------|------|
-| `EngineModelType` | 是 | String | 引擎类型：`16k_zh`(中文)、`16k_zh_en`(中英文) |
+| `EngineModelType` | 是 | String | 引擎类型：`bigmodel`(大模型，推荐)、`16k_zh`(中文)、`16k_zh_en`(中英文) |
 | `ChannelNum` | 是 | Integer | 声道数：`1` 单声道；`2` 双声道（8k 电话，自动区分说话人并返回 `ChannelId`：1=左/2=右） |
 | `ResTextFormat` | 是 | Integer | 结果格式：`0` 基础、`1` 含词级时间、`2` 含标点时间 |
 | `SourceType` | 是 | Integer | `0` URL 上传、`1` 本地数据（base64） |
@@ -376,7 +376,7 @@ func main() {
 
     // 3. 从本地文件识别（自动 base64 编码）
     data, _ := os.ReadFile("audio.pcm")
-    result, err := recognizer.RecognizeData(data, "pcm", "16k_zh_en")
+    result, err := recognizer.RecognizeData(data, "pcm", "bigmodel")
     if err != nil {
         log.Fatal(err)
     }
@@ -385,7 +385,7 @@ func main() {
     fmt.Printf("音频时长: %d ms\n", result.AudioDuration)
 
     // 或者从 URL 识别
-    // result, err := recognizer.RecognizeURL("https://example.com/audio.wav", "wav", "16k_zh_en")
+    // result, err := recognizer.RecognizeURL("https://example.com/audio.wav", "wav", "bigmodel")
 }
 ```
 
@@ -417,7 +417,7 @@ func main() {
 
     // 3. 提交识别任务（本地文件）
     data, _ := os.ReadFile("audio.pcm")
-    taskID, err := recognizer.CreateTaskFromData(data, "pcm", "16k_zh_en")
+    taskID, err := recognizer.CreateTaskFromData(data, "pcm", "bigmodel")
     if err != nil {
         log.Fatal(err)
     }
@@ -433,7 +433,7 @@ func main() {
     fmt.Printf("音频时长: %.2f s\n", status.AudioDuration)
 
     // 或者从 URL 提交（支持更大文件，≤1GB / ≤12h）
-    // taskID, err := recognizer.CreateTaskFromURL("https://example.com/audio.wav", "16k_zh_en")
+    // taskID, err := recognizer.CreateTaskFromURL("https://example.com/audio.wav", "bigmodel")
 
     // 或者自定义轮询间隔
     // status, err := recognizer.WaitForResultWithInterval(taskID, 2*time.Second, 30*time.Minute)
@@ -478,30 +478,30 @@ func main() {
 ```bash
 # 实时语音识别
 cd examples/realtime_asr
-go run main.go -f ../test.pcm
+go run main.go -e bigmodel -f ../test.pcm
 
 # 一句话识别
 cd examples/sentence_asr
-go run main.go -f ../test.pcm -fmt pcm
+go run main.go -e bigmodel -f ../test.pcm -fmt pcm
 
 # 录音文件识别
 cd examples/file_asr
-go run main.go -f ../test.pcm
+go run main.go -e bigmodel -f ../test.pcm
 
 # 说话人分离（实时：匿名聚类 + 字级说话人）
 cd examples/realtime_asr
-go run main.go -f ../test.pcm -diarization 1 -word-info 1
+go run main.go -e bigmodel -f ../test.pcm -diarization 1 -word-info 1
 
 # 说话人分离（实时：声纹角色认证，返回角色名）
-go run main.go -f ../test.pcm -diarization 3 \
+go run main.go -e bigmodel -f ../test.pcm -diarization 3 \
   -roles "teacher=https://example.com/teacher.wav,student=https://example.com/student.wav"
 
 # VAD 调优（远场过滤 + 噪声阈值）
-go run main.go -f ../test.pcm -vad-level 1 -noise-threshold 1.5
+go run main.go -e bigmodel -f ../test.pcm -vad-level 1 -noise-threshold 1.5
 
 # 说话人分离（录音文件）
 cd examples/file_asr
-go run main.go -u https://example.com/call.wav -diarization 1
+go run main.go -e bigmodel -u https://example.com/call.wav -diarization 1
 
 # 查看所有选项
 go run main.go -h

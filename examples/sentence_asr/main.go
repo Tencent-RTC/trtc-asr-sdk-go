@@ -3,7 +3,7 @@
 // Usage:
 //
 //	go run main.go -f test.wav
-//	go run main.go -f test.pcm -e 16k_zh_en -fmt pcm
+//	go run main.go -f test.pcm -e bigmodel -lang zh -fmt pcm
 //	go run main.go -u https://example.com/test.wav -fmt wav
 //
 // Prerequisites:
@@ -34,10 +34,23 @@ var (
 func main() {
 	filePath := flag.String("f", "", "path to local audio file")
 	audioURL := flag.String("u", "", "URL of audio file")
-	engine := flag.String("e", "16k_zh_en", "engine model type (16k_zh, 16k_zh_en)")
+	engine := flag.String("e", "", "engine model type, required (e.g. bigmodel)")
+	lang := flag.String("lang", "", "language hint; when omitted, the bigmodel engine uses zh")
 	voiceFmt := flag.String("fmt", "pcm", "audio format (wav, pcm, ogg-opus, mp3, m4a)")
 	wordInfo := flag.Int("w", 0, "word-level timing: 0=hide, 1=show, 2=show with punctuation")
 	flag.Parse()
+
+	if *engine == "" {
+		fmt.Fprintln(os.Stderr, "error: -e is required (engine model type, e.g. -e bigmodel)")
+		flag.Usage()
+		os.Exit(2)
+	}
+
+	// The bigmodel engine is best used with an explicit language; every other
+	// engine falls back to server-side detection unless -lang is given.
+	if *lang == "" && *engine == "bigmodel" {
+		*lang = "zh"
+	}
 
 	if AppID == 0 || SdkAppID == 0 || SecretKey == "" {
 		log.Fatal("Error: Please set AppID, SdkAppID and SecretKey in the code.\n\n" +
@@ -66,7 +79,14 @@ func main() {
 	if *audioURL != "" {
 		// Recognize from URL
 		log.Printf("Recognizing from URL: %s", *audioURL)
-		result, err = recognizer.RecognizeURL(*audioURL, *voiceFmt, *engine)
+		result, err = recognizer.Recognize(&asr.SentenceRecognitionRequest{
+			EngServiceType: *engine,
+			SourceType:     asr.SourceTypeURL,
+			VoiceFormat:    *voiceFmt,
+			Url:            *audioURL,
+			WordInfo:       *wordInfo,
+			Language:       *lang,
+		})
 	} else {
 		// Recognize from local file
 		data, readErr := os.ReadFile(*filePath)
@@ -75,17 +95,13 @@ func main() {
 		}
 		log.Printf("Recognizing from file: %s (%d bytes)", *filePath, len(data))
 
-		if *wordInfo > 0 {
-			req := &asr.SentenceRecognitionRequest{
-				EngServiceType: *engine,
-				SourceType:     asr.SourceTypeData,
-				VoiceFormat:    *voiceFmt,
-				WordInfo:       *wordInfo,
-			}
-			result, err = recognizer.RecognizeDataWithOptions(data, req)
-		} else {
-			result, err = recognizer.RecognizeData(data, *voiceFmt, *engine)
-		}
+		result, err = recognizer.RecognizeDataWithOptions(data, &asr.SentenceRecognitionRequest{
+			EngServiceType: *engine,
+			SourceType:     asr.SourceTypeData,
+			VoiceFormat:    *voiceFmt,
+			WordInfo:       *wordInfo,
+			Language:       *lang,
+		})
 	}
 
 	if err != nil {

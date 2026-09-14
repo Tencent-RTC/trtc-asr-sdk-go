@@ -28,6 +28,7 @@ func main() {
 	file := flag.String("f", "", "local audio file (<=5MB)")
 	url := flag.String("u", "", "audio URL (<=12h, <=1GB)")
 	diarization := flag.Int("diarization", 0, "speaker diarization: 0=off, 1=cluster, 3=voiceprint roles")
+	lang := flag.String("lang", "", "language hint; when omitted, the bigmodel engine uses zh")
 	interval := flag.Duration("interval", time.Second, "poll interval")
 	timeout := flag.Duration("timeout", 10*time.Minute, "poll timeout")
 	flag.Parse()
@@ -37,9 +38,19 @@ func main() {
 	if sdkAppID == 0 || secretKey == "" {
 		log.Fatal("Set TRTC_ASR_SDK_APP_ID and TRTC_ASR_SECRET_KEY first.")
 	}
-	engine := "16k_zh_en"
+	engine := ""
 	if flag.NArg() > 0 {
 		engine = flag.Arg(0)
+	}
+	if engine == "" {
+		fmt.Fprintln(os.Stderr, "error: engine argument is required (e.g. bigmodel)")
+		flag.Usage()
+		os.Exit(2)
+	}
+	// The bigmodel engine is best used with an explicit language; every other
+	// engine falls back to server-side detection unless -lang is given.
+	if *lang == "" && engine == "bigmodel" {
+		*lang = "zh"
 	}
 	if (*file == "") == (*url == "") {
 		log.Fatal("Pass exactly one of -f (local file) or -u (URL).")
@@ -56,6 +67,7 @@ func main() {
 		ChannelNum:         1,
 		ResTextFormat:      1, // include word-level timestamps
 		SpeakerDiarization: *diarization,
+		Language:           *lang,
 	}
 	if *url != "" {
 		req.SourceType = v3.SourceTypeURL

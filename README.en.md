@@ -63,7 +63,7 @@ Within **3 seconds** of the WebSocket handshake, send one start frame:
 {
   "type": "start",
   "auth": {"sdkappid": "1400000001", "usersig": "eJw..."},
-  "params": {"engine_model_type": "16k_zh_en", "voice_format": 1, "needvad": 1}
+  "params": {"engine_model_type": "bigmodel", "language": "zh", "voice_format": 1, "needvad": 1}
 }
 ```
 
@@ -129,8 +129,8 @@ sequenceDiagram
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `voice_id` | string | from URL | Stream ID (<=128 chars); same as the URL or omitted |
-| `engine_model_type` | string | `16k_zh_en` | Engine model |
-| `language` | string | empty | Language hint (`zh`, `en`, `ja`, …); empty = auto detect |
+| `engine_model_type` | string | **required** | Engine model; no default, must be provided. The examples pass `bigmodel` (recommended, with `language`) |
+| `language` | string | empty | Language hint (`zh`, `en`, `ja`, …); empty = auto detect. `bigmodel` is best used with an explicit value (e.g. `zh`) |
 | `voice_format` | int | `1` | Audio format: `1`pcm/`4`speex/`6`silk/`8`mp3/`10`opus/`11`ogg/`12`wav/`14`m4a/`16`aac |
 | `input_sample_rate` | int | — | Only `8000`: declare 8k PCM input for a 16k engine |
 | `needvad` | int | engine default | `0` off / `1` on |
@@ -182,7 +182,7 @@ With diarization on, speaker attribution comes through `result.speaker_segments[
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `engine_model_type` | string | yes | Engine model |
+| `engine_model_type` | string | yes | Engine model, required; the examples pass `bigmodel` (recommended, with `language`) |
 | `source_type` | int | yes | `0` URL / `1` local data (base64) |
 | `voice_format` | string | yes | `wav`, `pcm`, `ogg-opus`, `mp3`, `m4a` |
 | `url` | string | conditional | Audio URL (required when `source_type=0`) |
@@ -268,7 +268,8 @@ func main() {
 	credential := v3.NewCredential(1400000000, "your-sdk-secret-key")
 	// credential.SetSite(common.SiteIntl)  // international site
 
-	recognizer := v3.NewSpeechRecognizer(credential, "16k_zh_en", &MyListener{})
+	recognizer := v3.NewSpeechRecognizer(credential, "bigmodel", &MyListener{})
+	recognizer.SetLanguage("zh") // bigmodel works best with an explicit language
 
 	// Start() waits synchronously for the server ack; auth/param errors return here.
 	if err := recognizer.Start(); err != nil {
@@ -284,7 +285,11 @@ func main() {
 ```go
 recognizer := v3.NewSentenceRecognizer(credential)
 data, _ := os.ReadFile("audio.pcm")
-resp, err := recognizer.RecognizeData(data, "pcm", "16k_zh_en")
+resp, err := recognizer.RecognizeDataWithOptions(data, &v3.TranscribeRequest{
+	EngineModelType: "bigmodel",
+	VoiceFormat:     "pcm",
+	Language:        "zh",
+})
 if err != nil {
 	log.Fatal(err)
 }
@@ -295,7 +300,14 @@ fmt.Println(resp.Result, resp.AudioDuration, resp.WordList)
 
 ```go
 recognizer := v3.NewFileRecognizer(credential)
-taskID, err := recognizer.CreateTaskFromURL("https://example.com/audio.wav", "16k_zh_en")
+taskID, err := recognizer.CreateTask(&v3.CreateTranscriptionRequest{
+	EngineModelType: "bigmodel",
+	ChannelNum:      1,
+	ResTextFormat:   1,
+	SourceType:      v3.SourceTypeURL,
+	URL:             "https://example.com/audio.wav",
+	Language:        "zh",
+})
 if err != nil {
 	log.Fatal(err)
 }
@@ -346,10 +358,12 @@ Realtime recognition (`v3.SpeechRecognizer`); setters mirror the v2 client:
 
 | Value | Description |
 |-------|-------------|
+| `bigmodel` | Large model engine, recommended; pair it with `language` (e.g. `zh`) |
 | `8k_zh` | Chinese, telephony |
-| `16k_zh` | Chinese, general (recommended) |
+| `16k_zh` | Chinese, general |
 | `16k_zh_en` | Chinese + English |
-| `bigmodel` | Large model engine (multi-language) |
+
+> For `bigmodel`, `language` is not just a hint: the server picks the backend model from it (`zh` routes to the self-developed large model, empty routes to the generic pipeline). The examples default to `bigmodel` + `zh`.
 
 ## Examples
 

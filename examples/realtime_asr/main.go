@@ -39,7 +39,7 @@ var (
 
 // ===== Default Settings =====
 var (
-	EngineModelType = "16k_zh_en"
+	EngineModelType = "bigmodel"
 	SliceSize       = 6400 // bytes per audio chunk (200ms for 16kHz 16bit mono PCM)
 )
 
@@ -101,8 +101,8 @@ func main() {
 	concurrency := flag.Int("c", 1, "number of concurrent recognition sessions")
 	loop := flag.Bool("l", false, "loop mode for stress testing")
 	filePath := flag.String("f", "../test.pcm", "path to audio file (PCM or WAV)")
-	engine := flag.String("e", EngineModelType, "engine model type (16k_zh, 8k_zh, 16k_zh_en, bigmodel)")
-	lang := flag.String("lang", "", "language hint for bigmodel engine (e.g. ms, zh, auto)")
+	engine := flag.String("e", "", "engine model type, required (e.g. bigmodel)")
+	lang := flag.String("lang", "", "language hint; when omitted, the bigmodel engine uses zh")
 	diarization := flag.Int("diarization", 0, "speaker diarization: 0=off, 1=cluster, 3=voiceprint roles")
 	speakerNumber := flag.Int("speakers", 0, "expected speaker count hint (0=auto), only for -diarization=3")
 	roleSpec := flag.String("roles", "", "voiceprint roles for -diarization=3: \"name=https://url,name2=https://url2\"")
@@ -111,6 +111,18 @@ func main() {
 	noiseThreshold := flag.Float64("noise-threshold", -1, "VAD noise threshold [0,4]; negative means unset")
 	envFile := flag.String("env", "", "path to .env file to load credentials from (e.g. ../.env.test)")
 	flag.Parse()
+
+	if *engine == "" {
+		fmt.Fprintln(os.Stderr, "error: -e is required (engine model type, e.g. -e bigmodel)")
+		flag.Usage()
+		os.Exit(2)
+	}
+
+	// The bigmodel engine is best used with an explicit language; every other
+	// engine falls back to server-side detection unless -lang is given.
+	if *lang == "" && *engine == "bigmodel" {
+		*lang = "zh"
+	}
 
 	EngineModelType = *engine
 	loadCredentialsFromEnv()

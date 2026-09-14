@@ -5,7 +5,7 @@
 // Usage:
 //
 //	go run main.go -f ../test.pcm
-//	go run main.go -f ../test.pcm -e 16k_zh_en -diarization 1 -word-info 1
+//	go run main.go -f ../test.pcm -e bigmodel -lang zh -diarization 1 -word-info 1
 //
 // Prerequisites:
 //  1. Create a TRTC application: https://console.cloud.tencent.com/trtc/app
@@ -77,13 +77,25 @@ func (l *MyListener) OnFail(resp *v3.SpeechRecognitionResponse, err error) {
 
 func main() {
 	filePath := flag.String("f", "../test.pcm", "path to audio file (PCM)")
-	engine := flag.String("e", "16k_zh_en", "engine model type (16k_zh, 8k_zh, 16k_zh_en, bigmodel)")
-	lang := flag.String("lang", "", "language hint for bigmodel engine (e.g. ms, zh, auto)")
+	engine := flag.String("e", "", "engine model type, required (e.g. bigmodel)")
+	lang := flag.String("lang", "", "language hint; when omitted, the bigmodel engine uses zh")
 	diarization := flag.Int("diarization", 0, "speaker diarization: 0=off, 1=cluster, 3=voiceprint roles")
 	roleSpec := flag.String("roles", "", "voiceprint roles for -diarization=3: \"name=https://url,name2=https://url2\"")
 	wordInfo := flag.Int("word-info", 0, "word-level timestamps: 0=off, 1=on, 2=with punctuation")
 	hotwordList := flag.String("hotwords", "", "temporary hotword list: \"word|weight,word|weight\"")
 	flag.Parse()
+
+	if *engine == "" {
+		fmt.Fprintln(os.Stderr, "error: -e is required (engine model type, e.g. -e bigmodel)")
+		flag.Usage()
+		os.Exit(2)
+	}
+
+	// The bigmodel engine is best used with an explicit language; every other
+	// engine falls back to server-side detection unless -lang is given.
+	if *lang == "" && *engine == "bigmodel" {
+		*lang = "zh"
+	}
 
 	loadCredentialsFromEnv()
 	if SdkAppID == 0 || SecretKey == "" {

@@ -39,7 +39,8 @@ var (
 func main() {
 	filePath := flag.String("f", "", "path to local audio file (≤5MB)")
 	audioURL := flag.String("u", "", "URL of audio file (≤1GB, ≤12h)")
-	engine := flag.String("e", "16k_zh_en", "engine model type (16k_zh, 16k_zh_en)")
+	engine := flag.String("e", "", "engine model type, required (e.g. bigmodel)")
+	lang := flag.String("lang", "", "language hint; when omitted, the bigmodel engine uses zh")
 	resFormat := flag.Int("res", 1, "result format: 0=basic, 1=detailed, 2=detailed with punctuation timing")
 	callbackURL := flag.String("callback", "", "callback URL for receiving results when task completes")
 	diarization := flag.Int("diarization", 0, "speaker diarization: 0=off, 1=cluster, 3=voiceprint roles")
@@ -50,6 +51,18 @@ func main() {
 	pollInterval := flag.Duration("poll", time.Second, "poll interval for checking task status")
 	maxWait := flag.Duration("timeout", 10*time.Minute, "max wait time for task completion")
 	flag.Parse()
+
+	if *engine == "" {
+		fmt.Fprintln(os.Stderr, "error: -e is required (engine model type, e.g. -e bigmodel)")
+		flag.Usage()
+		os.Exit(2)
+	}
+
+	// The bigmodel engine is best used with an explicit language; every other
+	// engine falls back to server-side detection unless -lang is given.
+	if *lang == "" && *engine == "bigmodel" {
+		*lang = "zh"
+	}
 
 	if AppID == 0 || SdkAppID == 0 || SecretKey == "" {
 		log.Fatal("Error: Please set AppID, SdkAppID and SecretKey in the code.\n\n" +
@@ -75,6 +88,7 @@ func main() {
 
 	// applyOptions fills the shared recognition options on either request shape.
 	applyOptions := func(req *asr.CreateRecTaskRequest) {
+		req.Language = *lang
 		req.SpeakerDiarization = *diarization
 		req.SpeakerNumber = *speakerNumber
 		req.SpeakerRoles = parseRoles(*roleSpec)
