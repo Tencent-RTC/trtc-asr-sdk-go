@@ -170,13 +170,25 @@ The downlink shape is identical to v2 (`code` / `message` / `voice_id` / `messag
 | `result.voice_text_str` | String | Result text |
 | `result.word_size` / `word_list` | Integer / Array | Word (character) timings, requires `word_info != 0` |
 | `result.speaker_segments` | Array | Speaker segments, returned when diarization is on |
-| `result.language` / `language_b47` | String | Detected language (when the engine reports it) |
+| `result.language` | String | Detected language (when the engine reports it) |
 | `result.finish_silence_ms` | Integer | Trailing silence that triggered the split (ms) |
 | `result.last_token_runtime_ms` | Integer | Server-side decode time of the last token (ms) |
 
-With diarization on, speaker attribution comes through `result.speaker_segments[]` (recommended) and `result.word_list[].speaker_id` (requires `word_info != 0`); `speaker_id` starts at 1, `-1` means unknown. `speaker_segments[]` carries `speaker_id`, `speaker_name` (mode 3 only), `start_time`, `end_time`, `text`, `word_start`, `word_end` and `stable_flag`.
-
 ### Sentence recognition /v3/transcribe
+
+```mermaid
+sequenceDiagram
+    participant C as Client (v3 SDK)
+    participant S as ASR server
+
+    C->>S: POST /v3/transcribe {"auth":{"sdkappid","usersig","request_id"},"params":{...}}
+    Note right of S: auth (usersig bound to request_id) → synchronous recognition
+    alt success
+        S-->>C: {"code":0,"result":"...","word_list":[...]}
+    else failure
+        S-->>C: {"code":4xxx/5xxx,"message":"..."} (auth failure 4002 is also HTTP 200)
+    end
+```
 
 `params`:
 
@@ -189,42 +201,135 @@ With diarization on, speaker attribution comes through `result.speaker_segments[
 | `data` | string | conditional | Base64 audio (required when `source_type=1`) |
 | `data_len` | int | conditional | Original audio length (required when `source_type=1`) |
 | `word_info` | int | no | `0` off / `1` on / `2` with punctuation |
-| `filter_dirty` / `filter_modal` / `filter_punc` | int | no | Filters |
+| `filter_dirty` | int | no | Dirty words: `0` off / `1` filter / `2` replace with `*` |
+| `filter_modal` | int | no | Filler words: `0` off / `1` partial / `2` strict |
+| `filter_punc` | int | no | Punctuation: `0` keep / `1` strip |
 | `convert_num_mode` | int | no | `0` off / `1` smart / `3` math |
-| `hotword_id` / `hotword_list` | string | no | Hotwords |
+| `hotword_id` | string | no | Hotword list ID |
 | `customization_id` | string | no | Custom language model ID |
+| `hotword_list` | string | no | Inline hotword list |
 | `input_sample_rate` | int | no | PCM input sample rate (only 8000) |
-| `needvad` / `vad_silence_time` | int | no | Tri-state; omitted means server default |
+| `needvad` | int | no | Tri-state; omitted means server default, `0` off / `1` on |
+| `vad_silence_time` | int | no | Tri-state; omitted means server default (800), split silence in ms |
 | `language` | string | no | Language hint; empty = auto detect |
-| `speaker_diarization` / `speaker_number` | int | no | Diarization |
+| `speaker_diarization` | int | no | Diarization: `0` off / `1` cluster / `3` voiceprint roles |
+| `speaker_number` | int | no | Speaker count hint; `0` = auto |
 | `context` | object | no | Recognition context (same shape as realtime) |
 
 **Limits**: audio <= 60s, file <= 3MB.
 
-Response (`TranscribeResponse`): `code`, `message`, `request_id`, `result`, `audio_duration` (ms), `language`, `language_b47`, `word_size`, `word_list[]` (`word`, `start_time`, `end_time` in ms).
+Response (`v3.TranscribeResponse`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `code` / `message` / `request_id` | int / string / string | Status code / message / request ID |
+| `result` | string | Recognized text |
+| `audio_duration` | int | Audio duration (ms) |
+| `language` / `language_b47` | string | Detected language |
+| `word_size` / `word_list` | int / array | Word-level result; `word_list[]` carries `word` / `start_time` / `end_time` (ms) |
 
 ### Audio file recognition /v3/create_transcription
 
-Asynchronous: creating a task returns a `transcription_id` (valid for 24 hours), which you then poll with the task query endpoint. Request fields: `engine_model_type`, `channel_num`, `res_text_format`, `source_type`, `url` (<=12h, <=1GB) or `data` + `data_len` (<=5MB), `audio_urls` (distributed recording: `[{"index":0,"url":"...","label":"..."}]`, requires `source_type=0` with `url`/`data` empty), `callback_url`, `speaker_diarization`, `speaker_number`, `voiceprint_ids`, `speaker_roles`, `hotword_id`, `hotword_list`, `customization_id`, `keyword_lib_id_list`, `replace_text_id`, `convert_num_mode`, `filter_dirty`/`filter_punc`/`filter_modal`, `sentence_max_length`, `extra`, `vad_silence_ms`, `vad_level`, `noise_threshold` (`0` is valid; use a pointer/`None` to mean "unset"), `language`, `context`.
+Asynchronous: creating a task returns a `transcription_id` (valid for 24 hours), which you then poll with the task query endpoint.
+
+```mermaid
+sequenceDiagram
+    participant C as Client (v3 SDK)
+    participant S as ASR server
+
+    C->>S: POST /v3/create_transcription {"auth","params"}
+    S-->>C: {"code":0,"transcription_id":"tid-..."}
+
+    loop poll (SDK WaitForResult, 1s interval by default)
+        C->>S: POST /v3/describe_transcription {"auth","params":{"transcription_id":"tid-..."}}
+        S-->>C: {"status":0/1} (queued / running)
+    end
+    S-->>C: {"status":2,"result":"...","result_detail":[...]} (succeeded) or {"status":3,"error_msg":"..."}
+
+    Note over S: with callback_url set, the server POSTs the result once the task finishes (see below)
+```
+
+`params`:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `engine_model_type` | string | yes | Engine model, required; the examples pass `bigmodel` (recommended, with `language`) |
+| `channel_num` | int | yes | Channels: `1` mono; `2` stereo (splits by `channel_id`; do not combine with diarization) |
+| `res_text_format` | int | yes | `0` plain / `1` with word timings / `2` with punctuation timings |
+| `source_type` | int | yes | `0` URL / `1` local data (base64) |
+| `url` | string | conditional | Audio URL (`source_type=0`, <=12h, <=1GB) |
+| `data` / `data_len` | string / int | conditional | Base64 audio and original length (`source_type=1`, <=5MB) |
+| `audio_urls` | array | no | Distributed recording: `[{"index":0,"url":"...","label":"..."}]` |
+| `callback_url` | string | no | Result callback URL (POSTed when the task finishes) |
+| `speaker_diarization` | int | no | Diarization: `0` off / `1` cluster / `3` voiceprint roles |
+| `speaker_number` | int | no | Speaker count hint |
+| `voiceprint_ids` | array | no | Enrolled voiceprint IDs (mode 3 only) |
+| `speaker_roles` | array | no | Temporary voiceprints `[{"audio_url","role_name"}]` (mode 3 only) |
+| `hotword_id` | string | no | Hotword list ID |
+| `customization_id` | string | no | Custom language model ID |
+| `hotword_list` | string | no | Inline hotword list |
+| `keyword_lib_id_list` | array | no | Keyword library ID list |
+| `replace_text_id` | string | no | Replacement table ID |
+| `convert_num_mode` | int | no | Number conversion |
+| `filter_dirty` / `filter_punc` / `filter_modal` | int | no | Filters |
+| `sentence_max_length` | int | no | Maximum sentence length |
+| `extra` | string | no | Engine-specific extra string |
+| `vad_silence_ms` | int | no | Split silence threshold (ms) |
+| `vad_level` | int | no | VAD profile: `0` high recall / `1` far-field |
+| `noise_threshold` | float | no | Noise threshold `0`~`4` (`0` is valid; use `*float64` to mean "unset") |
+| `language` | string | no | Language hint; empty = auto detect |
+| `context` | object | no | Recognition context (same shape as realtime) |
 
 Response: `{"code":0,"message":"success","request_id":"...","transcription_id":"..."}`.
 
-When `callback_url` is set, the server POSTs the result as `application/x-www-form-urlencoded` once the task finishes, with `code`, `message`, `request_id` (the value from creation), `transcription_id`, `text`, `audio_duration` (seconds), `audio_url` and `result_detail` (JSON string).
+`callback_url` callback (`application/x-www-form-urlencoded`, snake_case fields):
+
+| Field | Description |
+|-------|-------------|
+| `code` / `message` | `0` success / failure reason |
+| `request_id` | The `auth.request_id` value from creation |
+| `transcription_id` | Task ID |
+| `text` / `audio_duration` | On success: full text / duration (seconds) |
+| `audio_url` | Audio URL (when present and allowed to be returned) |
+| `result_detail` | JSON string; sentence shape identical to the task query response |
 
 ### Task query /v3/describe_transcription
 
-`params` has a single field: `transcription_id` (not interchangeable with the v1 `RecTaskId`).
+`params` has a single field: `transcription_id` (the ID returned at creation; not interchangeable with the v1 `RecTaskId`).
 
-Response (`TranscriptionStatus`): `code`, `message`, `request_id`, `transcription_id`, `status` (`0` queued / `1` running / `2` succeeded / `3` failed), `status_str`, `progress`, `audio_duration` (seconds), `result`, `result_detail[]`, `error_msg`.
+Response (`v3.TranscriptionStatus`):
 
-`result_detail[]` (`SentenceDetail`): `final_sentence`, `slice_sentence`, `written_text`, `start_ms`, `end_ms`, `words_num`, `words[]` (`word`, `start_time`, `end_time`), `speech_speed`, `speaker_id`, `channel_id` (stereo: 1 = left, 2 = right), `speaker_role_name`, `silence_time`, `language`, `language_b47`.
+| Field | Type | Description |
+|-------|------|-------------|
+| `code` / `message` / `request_id` | — | Status code / message / request ID |
+| `transcription_id` | string | Task ID |
+| `status` / `status_str` | int / string | `0` queued / `1` running / `2` succeeded / `3` failed |
+| `progress` | int | Progress (0-100) |
+| `audio_duration` | float | Audio duration (seconds) |
+| `result` | string | Full recognized text |
+| `result_detail` | array | Per-sentence results (see below) |
+| `error_msg` | string | Failure reason |
+
+`result_detail[]` (`v3.SentenceDetail`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `final_sentence` / `slice_sentence` / `written_text` | string | Final sentence / sliced sentence / written text |
+| `start_ms` / `end_ms` | int | Sentence start/end (ms) |
+| `words_num` / `words` | int / array | Word-level result; `words[]` carries `word` / `start_time` / `end_time` |
+| `speech_speed` | float | Speaking rate |
+| `speaker_id` | int | Speaker number (returned with diarization on) |
+| `channel_id` | int | Stereo channel: 1 = left, 2 = right |
+| `speaker_role_name` | string | Role name (mode 3, when a voiceprint matches) |
+| `silence_time` | int | Leading silence (ms) |
+| `language` / `language_b47` | string | Detected language of the sentence |
 
 ### Error codes
 
 | code | Meaning | Typical trigger |
 |------|---------|-----------------|
 | `4000` | Audio sent too fast | At most 3s of audio per 1s wall-clock |
-| `4001` | Invalid parameter | params validation failed / `EnableV3Route` off / `voice_id` conflict |
+| `4001` | Invalid parameter | params validation failed / `voice_id` conflict |
 | `4002` | Authentication failed | missing `auth` / bad `usersig` / querying another account's task |
 | `4003` | Service not activated | scheduling refused |
 | `4006` | Concurrency limit | account concurrency or connection limit |
@@ -233,7 +338,65 @@ Response (`TranscriptionStatus`): `code`, `message`, `request_id`, `transcriptio
 | `4010` | Unknown text message | invalid start frame JSON or `type` other than `start` |
 | `5000`/`5001`/`5002` | Server error | no worker available / scheduling failed; retryable |
 
-HTTP status vs. `code`: invalid parameter `400`, authentication failure **`200`**, v3 not enabled `404`, concurrency `429`, body too large `413`, scheduling failure `503` — **always trust the `code` in the body**.
+HTTP status vs. `code`: invalid parameter `400`, authentication failure **`200`**, concurrency `429`, body too large `413`, scheduling failure `503` — **always trust the `code` in the body**.
+
+### Speaker diarization (realtime)
+
+With `speaker_diarization` on, speaker attribution comes through two entries:
+
+- `result.speaker_segments[]`: **the recommended entry.** A single `result` may span several speakers, so sentence-level attribution is inherently ambiguous — the protocol therefore returns segments split by speaker. `len(speaker_segments) == 1` means a single-speaker sentence.
+- `result.word_list[].speaker_id`: character-level attribution; requires `word_info != 0` as well.
+
+`speaker_id` semantics: valid within a session, numbered from `1`, `-1` means unknown, `0` is reserved.
+
+`speaker_segments[]` fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `speaker_id` | Integer | Speaker number |
+| `speaker_name` | String | Role name; only returned with `speaker_diarization=3` when a registered voiceprint matches, equal to the request-side `RoleName` |
+| `start_time` / `end_time` | Integer | Segment time range (ms) |
+| `text` | String | Segment text |
+| `word_start` / `word_end` | Integer | Inclusive indices into `word_list`, i.e. `word_list[word_start:word_end+1]`; not returned when `word_info=0` |
+| `stable_flag` | Integer | Whether the segment is stable: `1` stable, `0` not stable |
+
+Go usage:
+
+```go
+recognizer := v3.NewSpeechRecognizer(credential, "bigmodel", &MyListener{})
+recognizer.SetLanguage("zh")                                      // recommended for bigmodel
+recognizer.SetWordInfo(1)                                         // needed for character-level speaker ids
+recognizer.SetSpeakerDiarization(v3.SpeakerDiarizationCluster)     // 1: anonymous clustering
+
+// Voiceprint role authentication (returns role names):
+// recognizer.SetSpeakerDiarization(v3.SpeakerDiarizationVoiceprint) // 3
+// recognizer.SetSpeakerRoles([]v3.SpeakerRole{
+//     {RoleName: "teacher", AudioURL: "https://example.com/teacher.wav"},
+// })
+// recognizer.SetVoiceprintIDs([]string{"vp-1"}) // enrolled voiceprints
+// recognizer.SetSpeakerNumber(2)                // 0 = auto detect; works for both modes
+
+// In the callback:
+func (l *MyListener) OnSentenceEnd(resp *v3.SpeechRecognitionResponse) {
+    for _, seg := range resp.Result.SpeakerSegments {
+        name := seg.SpeakerName            // only with speaker_diarization=3
+        if name == "" {
+            name = fmt.Sprintf("spk%d", seg.SpeakerID)
+        }
+        log.Printf("[%s] %s", name, seg.Text)
+    }
+}
+```
+
+### VAD tuning (noise_threshold / vad_level)
+
+| Method | Value | Description |
+|--------|-------|-------------|
+| `SetVadLevel(level)` | `0` / `1` | `0` high recall, `1` far-field filtering (server default) |
+| `SetNoiseThreshold(v)` | `0.0` - `4.0` | Noise suppression fine-tuning; higher means stronger suppression and lower recall; overrides the `vad_level` profile |
+| `SetVadSilenceTime(ms)` | 240 - 2000 | Silence threshold for sentence splitting |
+
+Both are tri-state: **only an explicit setter call is sent on the wire**, so an explicit `0` is distinguishable from "not configured" (the server default for `vad_level` is `1`). Out-of-range values fail locally in `Start()` instead of wasting a connection.
 
 ## Installation
 
@@ -406,13 +569,21 @@ trtc-asr-sdk-go/
 
 ## FAQ
 
-**v3 or v2?** For new integrations use v3 (`asr/v3`): only SdkAppID + SecretKey, a cleaner protocol, and `Start()` returns auth/parameter errors synchronously — provided `EnableV3Route` is enabled for your SdkAppID. Existing v2 users can stay as they are.
+**v3 or v2?** For new integrations use v3 (`asr/v3`): only SdkAppID + SecretKey, a cleaner protocol, and `Start()` returns auth/parameter errors synchronously. Existing v2 users can stay as they are — see [docs/v2_protocol.md](./docs/v2_protocol.md).
 
-**Why `4001` / `404`?** Most likely the `EnableV3Route` switch is not enabled for your SdkAppID: the realtime endpoint answers `4001 v3 interface not enabled` and the HTTP endpoints answer `404`.
+**How do I read error codes?** SDK-local codes are 10xx; server codes are 4xxx/5xxx. `ASRError.Code` ranges do not overlap.
 
 **Can I query a v1 task ID through v3?** No. The v1 `RecTaskId` and the v3 `transcription_id` are separate task spaces.
 
-**How do I read error codes?** SDK-local codes are 10xx; server codes are 4xxx/5xxx. `ASRError.Code` ranges do not overlap.
+**Where is the legacy v2 / v1 protocol?** The `asr` package stays maintained and is documented in [docs/v2_protocol.md](./docs/v2_protocol.md). v2 and v3 share the same downlink shape and listener API, so switching protocol versions only means changing the import and construction call.
+
+**What is UserSig?** UserSig is a signature computed from SdkAppID and the SDK secret key, used to authenticate against TRTC. The SDK generates it automatically (bound to `voice_id` for realtime and `request_id` for offline), so you never compute it by hand. See the [authentication document](https://cloud.tencent.com/document/product/647/17275).
+
+**Which audio formats are supported?**
+
+- **Realtime recognition**: PCM (`voice_format=1`); 16 kHz, 16-bit, mono recommended
+- **Sentence recognition**: wav, pcm, ogg-opus, mp3, m4a; audio <= 60s and file <= 3MB
+- **Audio file recognition**: wav, ogg-opus, mp3, m4a; local file <= 5MB, URL <= 1GB and <= 12h
 
 ## License
 

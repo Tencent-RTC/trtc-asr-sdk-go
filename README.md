@@ -1,7 +1,9 @@
 # TRTC-ASR Go SDK
 
 > [English](./README.en.md) | 中文
-基于 TRTC 鉴权体系的语音识别（ASR）Go SDK（**v3 协议**），支持实时语音识别（WebSocket）、一句话识别（HTTP）和录音文件识别（异步 HTTP）三种模式。
+基于 TRTC 鉴权体系的语音识别（ASR）Go SDK，支持实时语音识别（WebSocket）、一句话识别（HTTP）和录音文件识别（异步 HTTP）三种模式。
+
+本 SDK 面向**新版 v3 协议**：只需 `SDKAppID` + `SecretKey`（无需腾讯云 AppID），`auth`/`params` 分块、全 snake_case、扁平响应 + 数字错误码。v3 客户端位于 `asr/v3` 包。
 
 > 旧版 v2 / v1 协议客户端（`asr` 包）继续维护、存量可用，文档见 [docs/v2_protocol.md](./docs/v2_protocol.md)。
 
@@ -14,7 +16,7 @@
 - **国内站**：[快速接入指南](https://xai.cloud-rtc.com/#gettingStarted) — 注册腾讯云账号并完成实名认证 → 在 [TRTC 控制台](https://console.cloud.tencent.com/trtc/app)创建应用 → 开通「AI 智能识别」（体验版可免费试用）
 - **国际站**：[Quick Start](https://xai-intl.cloud-rtc.com/#gettingStarted) — 在 [trtc.io](https://www.trtc.io) 注册（自动开通 Tencentcloud 账号，无需实名认证）→ 在 [console.trtc.io](https://console.trtc.io) 创建应用 → 开通「AI Speech Recognition」（仅 RTC Engine Lite 及以上包月套餐，Free Trial 不支持）
 
-## 协议说明
+## 协议说明（v3）
 
 ### 接口路径
 
@@ -621,6 +623,11 @@ trtc-asr-sdk-go/
 ```
 
 ## 常见问题
+
+### v3 和 v2 怎么选？
+
+- **新接入**：推荐 v3（`asr/v3` 包）——只需 SDKAppID + SecretKey，协议更干净（auth/params 分块、扁平响应、数字错误码），`Start()` 同步返回鉴权/参数错误。
+- **存量**：v2（`asr` 包）继续全量可用，无需任何改动，文档见 [docs/v2_protocol.md](./docs/v2_protocol.md)。
 
 ### 错误码怎么看？
 
