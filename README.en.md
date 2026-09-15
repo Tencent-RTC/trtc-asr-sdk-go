@@ -4,7 +4,7 @@ Go SDK for Tencent TRTC speech recognition (ASR): realtime recognition (WebSocke
 
 This SDK targets the **v3 protocol**: only `SdkAppID` + `SecretKey` are required (no Tencent Cloud AppID), requests use separate `auth` / `params` blocks, everything is snake_case, and responses are flat with numeric codes. The v3 client lives in the `asr/v3` package.
 
-> Other languages: [English](./README.en.md) | [中文](./README.md)
+> [English](./README.en.md) | [中文](./README.md)
 >
 > SDKs: [Python](https://github.com/Tencent-RTC/trtc-asr-sdk-python) | [Node.js](https://github.com/Tencent-RTC/trtc-asr-sdk-nodejs) | [Java](https://github.com/Tencent-RTC/trtc-asr-sdk-java) | [Rust](https://github.com/Tencent-RTC/trtc-asr-sdk-rust) | [C++](https://github.com/Tencent-RTC/trtc-asr-sdk-cpp)
 >
@@ -12,7 +12,7 @@ This SDK targets the **v3 protocol**: only `SdkAppID` + `SecretKey` are required
 
 ## Prerequisites
 
-Two credentials are needed: `SdkAppID` and `SecretKey`. The domestic and international sites use different account systems — follow the official quick start for your site to register, create an application and activate the service:
+Two credentials are needed: `SdkAppID` and `SecretKey` (on v3 `SdkAppID` is the only customer dimension — the Tencent Cloud `AppID` is **no longer needed**). The domestic and international sites use different account systems — follow the official quick start for your site to register, create an application and activate the service:
 
 - **China site**: [Quick Start](https://xai.cloud-rtc.com/#gettingStarted) — register a Tencent Cloud account and complete real-name verification → create an application in the [TRTC console](https://console.cloud.tencent.com/trtc/app) → activate "AI Speech Recognition" (free trial available)
 - **International site**: [Quick Start](https://xai-intl.cloud-rtc.com/#gettingStarted) — register at [trtc.io](https://www.trtc.io) (a Tencentcloud account is created automatically, no real-name verification) → create an application at [console.trtc.io](https://console.trtc.io) → activate "AI Speech Recognition" (RTC Engine Lite or above only; Free Trial is not supported)
@@ -114,6 +114,7 @@ sequenceDiagram
     S-->>C: result.slice_type=0 (sentence begin)
     S-->>C: result.slice_type=1 (interim result) xN
     S-->>C: result.slice_type=2 (final sentence)
+    Note right of S: with several sentences, index increments and 0→1→2 repeats
 
     C->>S: {"type":"end"}
     S-->>C: {"final":1} (stream finished)
@@ -404,6 +405,8 @@ Both are tri-state: **only an explicit setter call is sent on the wire**, so an 
 go get github.com/Tencent-RTC/trtc-asr-sdk-go
 ```
 
+**Requires**: Go 1.21+
+
 ## Quick start
 
 ### Realtime recognition
@@ -485,7 +488,7 @@ fmt.Println(status.Result, status.AudioDuration, status.ResultDetail)
 
 | Field | China site | International site | Notes |
 |-------|-----------|--------------------|-------|
-| `SDKAppID` | [TRTC console](https://console.cloud.tencent.com/trtc/app) > Application management | [console.trtc.io](https://console.trtc.io) > application details | TRTC application ID |
+| `SDKAppID` | [TRTC console](https://console.cloud.tencent.com/trtc/app) > Application management | [console.trtc.io](https://console.trtc.io) > application details | TRTC application ID; the only customer dimension on v3 |
 | `SecretKey` | [TRTC console](https://console.cloud.tencent.com/trtc/app) > overview > SDK key | [console.trtc.io](https://console.trtc.io) > application details | Used to derive UserSig; never transmitted |
 
 > The Tencent Cloud `AppID` needed by the v2 client is not required on v3.
@@ -497,13 +500,13 @@ Realtime recognition (`v3.SpeechRecognizer`); setters mirror the v2 client:
 | Method | Description | Default |
 |--------|-------------|---------|
 | `SetVoiceFormat(f)` | Audio format | 1 (PCM) |
-| `SetNeedVad(v)` | Enable VAD | 1 (on) |
-| `SetConvertNumMode(m)` | Number conversion | 1 (smart) |
-| `SetHotwordId(id)` / `SetHotwordList(list)` | Hotwords | - |
+| `SetNeedVad(v)` | Enable VAD (an explicit `0` really turns it off) | 1 (on) |
+| `SetConvertNumMode(m)` | Number conversion: `0` off / `1` smart / `3` math (an explicit `0` is sent) | 1 (smart) |
+| `SetHotwordId(id)` / `SetHotwordList(list)` | Hotwords: table ID (per SdkAppID) / inline `word\|weight,...` | - |
 | `SetFilterDirty(m)` / `SetFilterModal(m)` / `SetFilterPunc(m)` | Filters | 0 (off) |
 | `SetFilterEmptyResult(m)` | Deliver empty results | 1 (skip) |
-| `SetWordInfo(m)` | Word/character timings | 0 (off) |
-| `SetWordWithSpace(m)` | Space-separated English words | 0 (off) |
+| `SetWordInfo(m)` | Word/character timings: `0` off / `1` on / `2` with punctuation / `100` caption | 0 (off) |
+| `SetWordWithSpace(m)` | Space-separated English word output | 0 (off) |
 | `SetVadSilenceTime(ms)` | VAD silence threshold (240-2000) | 800ms |
 | `SetVadLevel(level)` | VAD profile: 0 high recall / 1 far-field | 1 |
 | `SetNoiseThreshold(v)` | VAD noise tuning (0.0-4.0), overrides the profile | unset |
@@ -511,11 +514,13 @@ Realtime recognition (`v3.SpeechRecognizer`); setters mirror the v2 client:
 | `SetInputSampleRate(r)` | PCM input rate, only 8000 | - |
 | `SetSpeakerDiarization(m)` | Diarization: 0 off / 1 cluster / 3 voiceprint | 0 (off) |
 | `SetSpeakerNumber(n)` | Speaker count hint | 0 (auto) |
-| `SetSpeakerRoles(roles)` | Temporary voiceprints (mode 3) | - |
-| `SetVoiceprintIds(ids)` | Enrolled voiceprint IDs (mode 3) | - |
-| `SetLanguage(lang)` | Language hint | auto |
-| `SetVoiceId(id)` | Custom voice_id | auto UUID |
-| `SetContext(ctx)` | Recognition context | - |
+| `SetSpeakerRoles(roles)` | Temporary voiceprints (mode 3 only) | - |
+| `SetVoiceprintIds(ids)` | Enrolled voiceprint IDs (mode 3 only) | - |
+| `SetLanguage(lang)` | Language hint | auto detect |
+| `SetVoiceId(id)` | Custom voice_id (UserSig is bound to it) | auto UUID |
+| `SetContext(ctx)` | Recognition context (`text` / `terms` / `general`) | - |
+
+> v3 realtime does not carry the v2 `customization_id` / `replace_text_id`.
 
 ## Engine models
 
@@ -571,11 +576,11 @@ trtc-asr-sdk-go/
 
 **v3 or v2?** For new integrations use v3 (`asr/v3`): only SdkAppID + SecretKey, a cleaner protocol, and `Start()` returns auth/parameter errors synchronously. Existing v2 users can stay as they are — see [docs/v2_protocol.md](./docs/v2_protocol.md).
 
-**How do I read error codes?** SDK-local codes are 10xx; server codes are 4xxx/5xxx. `ASRError.Code` ranges do not overlap.
+**How do I read error codes?** v3 uses numeric codes throughout: `4001` invalid parameter, `4002` authentication failed, `4006` concurrency limit, `4008` timeout, `5000` server error. The error you get is `*common.ASRError`; its `Code` is the server code (SDK-local errors use the 10xx range, e.g. `1001` invalid parameter, `1002` connection failed). Note that an HTTP authentication failure is also HTTP 200 — always trust the `code` in the body (the SDK already does).
 
 **Can I query a v1 task ID through v3?** No. The v1 `RecTaskId` and the v3 `transcription_id` are separate task spaces.
 
-**Where is the legacy v2 / v1 protocol?** The `asr` package stays maintained and is documented in [docs/v2_protocol.md](./docs/v2_protocol.md). v2 and v3 share the same downlink shape and listener API, so switching protocol versions only means changing the import and construction call.
+**Where is the legacy v2 / v1 protocol?** The v2 / v1 clients exported from the `asr` package stay maintained and are documented in [docs/v2_protocol.md](./docs/v2_protocol.md). v2 and v3 share the same downlink shape and listener API, so switching protocol versions only means changing the import and construction call.
 
 **What is UserSig?** UserSig is a signature computed from SdkAppID and the SDK secret key, used to authenticate against TRTC. The SDK generates it automatically (bound to `voice_id` for realtime and `request_id` for offline), so you never compute it by hand. See the [authentication document](https://cloud.tencent.com/document/product/647/17275).
 

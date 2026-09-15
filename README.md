@@ -66,8 +66,7 @@ WebSocket 建连后 **3 秒内**发送首帧 JSON：
 }
 ```
 
-鉴权通过后服务端回 `{"code":0,"message":"success","voice_id":"..."}`，之后上行 binary 音频帧、
-结束发 `{"type":"end"}`。SDK 的 `Start()` 会**同步等待这个 ack**，鉴权/参数错误直接从 `Start()` 返回。
+鉴权通过后服务端回 `{"code":0,"message":"success","voice_id":"..."}`，之后上行 binary 音频帧、结束发 `{"type":"end"}`。SDK 的 `Start()` 会**同步等待这个 ack**，鉴权/参数错误直接从 `Start()` 返回。
 
 #### 离线（HTTP）鉴权
 
@@ -85,8 +84,7 @@ HTTP POST body 为对称的 `{"auth":{...},"params":{...}}`，响应扁平化（
 {"code": 0, "message": "success", "request_id": "req-uuid", "result": "识别文本", "audio_duration": 1234}
 ```
 
-> **注意**：v3 离线鉴权失败是 HTTP 200 + `{"code":4002}`，判断结果请以 body 的 `code` 为准
-> （SDK 已处理，`code != 0` 会返回携带该 code 的 error）。
+> **注意**：v3 离线鉴权失败是 HTTP 200 + `{"code":4002}`，判断结果请以 body 的 `code` 为准（SDK 已处理，`code != 0` 会返回携带该 code 的 error）。
 
 ### 在线交互流程（建联 → 鉴权 → 识别）
 
@@ -122,16 +120,11 @@ sequenceDiagram
     C->>S: 关闭连接
 ```
 
-> SDK 行为对应关系：`Start()` = ①+②（同步等 ack，失败立即返回 error）；`Write()` = ③上行；
-> 下行经 listener 回调（`OnSentenceBegin` / `OnRecognitionResultChange` / `OnSentenceEnd` /
-> `OnRecognitionComplete`）；`Stop()` = 发 `end` 并等 `final:1`。
-> 空闲保护：15s 未发音频服务端会以 `4008` 断连。
+> SDK 行为对应：`Start()` = ①+②（同步等 ack，失败立即返回 error）；`Write()` = ③上行；下行经 listener 回调（`OnSentenceBegin` / `OnRecognitionResultChange` / `OnSentenceEnd` / `OnRecognitionComplete`）；`Stop()` = 发 `end` 并等 `final:1`。空闲保护：15s 未发音频服务端会以 `4008` 断连。
 
 ### 在线首帧参数（params）
 
-`needvad` / `vad_silence_time` / `vad_level` / `input_sample_rate` / `convert_num_mode` /
-`filter_empty_result` / `noise_threshold` 为可选三态字段：未传走服务端缺省，显式传 `0` 有业务含义
-（`vad_silence_time`、`input_sample_rate` 显式传 `0` 非法）。
+`needvad` / `vad_silence_time` / `vad_level` / `input_sample_rate` / `convert_num_mode` / `filter_empty_result` / `noise_threshold` 为可选三态字段：未传走服务端缺省，显式传 `0` 有业务含义（v2 的 query 传参会吞掉显式 0，v3 已修正）。
 
 | 参数 | 类型 | 默认 | 说明 |
 |------|------|------|------|
@@ -160,12 +153,11 @@ sequenceDiagram
 | `speaker_roles` | []object | 空 | 临时声纹：`[{"audio_url":"...","role_name":"..."}]`（仅模式 3），`role_name` 会回显到结果 |
 | `context` | object | 空 | 识别上下文：`{"text":"背景文本","terms":["术语"],"general":[{"key":"domain","value":"Meeting"}]}` |
 
-> `context` 消费方式与引擎能力相关：大模型类引擎可用 `text`/`terms`/`general`，传统引擎仅把
-> `terms` 降级为热词。`speaker_diarization=1/3` 时服务端会强制开启 VAD 并调整 `word_info`。
+> `context` 消费方式与引擎能力相关：大模型类引擎可用 `text`/`terms`/`general`，传统引擎仅把 `terms` 降级为热词。`speaker_diarization=1/3` 时服务端会强制开启 VAD 并调整 `word_info`。
 
 ### 在线响应
 
-下行消息结构（`code` / `message` / `voice_id` / `message_id` / `result` / `final`）：
+下行消息结构与 v2 完全一致（`code` / `message` / `voice_id` / `message_id` / `result` / `final`）：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -257,8 +249,6 @@ sequenceDiagram
     Note over S: 若创建时配置了 callback_url，任务完成后服务端会主动 POST 回调（见下表）
 ```
 
-
-
 `params` 字段：
 
 | 参数 | 类型 | 必填 | 说明 |
@@ -348,8 +338,7 @@ sequenceDiagram
 | `4010` | 未知文本消息 | 首帧 JSON 非法 / `type` 非 `start` |
 | `5000`/`5001`/`5002` | 服务端内部错误 | 无可用机器 / 调度失败，可重试 |
 
-离线接口的 HTTP 状态码与 `code` 组合：参数错误 `400`、鉴权失败 **`200`**、
-并发超限 `429`、body 过大 `413`、调度失败 `503`——**一律以 body 的 `code` 为准**。
+离线接口的 HTTP 状态码与 `code` 组合：参数错误 `400`、鉴权失败 **`200`**、并发超限 `429`、body 过大 `413`、调度失败 `503`——**一律以 body 的 `code` 为准**。
 
 ### 说话人分离（实时）
 
@@ -508,7 +497,7 @@ fmt.Println(status.Result, status.AudioDuration, status.ResultDetail)
 
 ## 配置项
 
-实时语音识别（`v3.SpeechRecognizer`）：
+实时语音识别（`v3.SpeechRecognizer`），setter 命名与 v2 保持一致：
 
 | 方法 | 说明 | 默认值 |
 |------|------|--------|
@@ -530,11 +519,13 @@ fmt.Println(status.Result, status.AudioDuration, status.ResultDetail)
 | `SetInputSampleRate(r)` | 输入 PCM 采样率，仅 8000 | - |
 | `SetSpeakerDiarization(m)` | 说话人分离：0 关 / 1 聚类 / 3 声纹角色 | 0 (关闭) |
 | `SetSpeakerNumber(n)` | 说话人数量提示（分离开启时生效） | 0 (自动) |
-| `SetSpeakerRoles(roles)` | 临时声纹角色 `{RoleName, AudioURL}`（仅模式 3） | - |
+| `SetSpeakerRoles(roles)` | 临时声纹角色（仅模式 3，`{RoleName, AudioURL}`） | - |
 | `SetVoiceprintIDs(ids)` | 已注册声纹 ID（仅模式 3） | - |
 | `SetLanguage(lang)` | 指定识别语言 | 自动检测 |
-| `SetContext(ctx)` | 识别上下文（`text`/`terms`/`general`） | - |
 | `SetVoiceID(id)` | 自定义 voice_id（UserSig 自动绑定该值） | 自动 UUID |
+| `SetContext(ctx)` | 识别上下文（`text`/`terms`/`general`） | - |
+
+> v3 在线不支持 v2 的 `customization_id` / `replace_text_id`（v3 协议未包含）。
 
 ## 引擎模型
 
@@ -549,9 +540,14 @@ fmt.Println(status.Result, status.AudioDuration, status.ResultDetail)
 
 ## 示例
 
-- **实时语音识别**：[`examples/v3_realtime_asr/`](./examples/v3_realtime_asr/) — v3 首帧协议
-- **一句话识别**：[`examples/v3_sentence_asr/`](./examples/v3_sentence_asr/) — `POST /v3/transcribe`
-- **录音文件识别**：[`examples/v3_file_asr/`](./examples/v3_file_asr/) — 异步任务 + 轮询
+完整示例请参见：
+
+- **实时语音识别（v3）**：[`examples/v3_realtime_asr/`](./examples/v3_realtime_asr/)
+- **一句话识别（v3）**：[`examples/v3_sentence_asr/`](./examples/v3_sentence_asr/)
+- **录音文件识别（v3）**：[`examples/v3_file_asr/`](./examples/v3_file_asr/)
+- **实时语音识别（v2）**：[`examples/realtime_asr/`](./examples/realtime_asr/)
+- **一句话识别（v2）**：[`examples/sentence_asr/`](./examples/sentence_asr/)
+- **录音文件识别（v2）**：[`examples/file_asr/`](./examples/file_asr/)
 
 ```bash
 cd examples/v3_realtime_asr
@@ -574,8 +570,6 @@ cd ../v3_sentence_asr && go run main.go -e bigmodel -f ../test.pcm -word-info 1
 cd ../v3_file_asr
 go run main.go -e bigmodel -u https://example.com/audio.wav -diarization 1
 ```
-
-> v2 旧版示例（realtime_asr / sentence_asr / file_asr）见 [docs/v2_protocol.md](./docs/v2_protocol.md#示例)。
 
 ## 项目结构
 
@@ -632,8 +626,7 @@ trtc-asr-sdk-go/
 ### 错误码怎么看？
 
 v3 全部使用数字错误码：参数非法 `4001`、鉴权失败 `4002`、并发超限 `4006`、超时 `4008`、服务端错误 `5000`。
-SDK 返回的 error 是 `*common.ASRError`，其 `Code` 即服务端错误码（SDK 本地错误用 10xx 区间，如
-`1001` 本地参数错误、`1002` 连接失败）。注意离线接口鉴权失败也是 HTTP 200，请以 body 的 `code` 为准（SDK 已处理）。
+SDK 返回的 error 是 `*common.ASRError`，其 `Code` 即服务端错误码（SDK 本地错误用 10xx 区间，如 `1001` 本地参数错误、`1002` 连接失败）。注意离线接口鉴权失败也是 HTTP 200，请以 body 的 `code` 为准（SDK 已处理）。
 
 ### v1 的任务 ID 能用 v3 接口查询吗？
 
@@ -641,7 +634,7 @@ SDK 返回的 error 是 `*common.ASRError`，其 `Code` 即服务端错误码（
 
 ### 旧版 v2 / v1 协议在哪？
 
-`asr` 包继续维护，文档见 [docs/v2_protocol.md](./docs/v2_protocol.md)。v2 与 v3 的下行消息结构一致，
+`asr` 包导出的 v2 / v1 客户端继续维护，文档见 [docs/v2_protocol.md](./docs/v2_protocol.md)。v2 与 v3 的下行消息结构一致，
 listener 用法相同，切换协议版本只需改 import 与构造方式。
 
 ### UserSig 是什么？
