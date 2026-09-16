@@ -67,7 +67,6 @@
     （v2 query 传参会吞掉 0 值）
   - 说话人分离的 `speaker_roles` 元素序列化为 snake_case（`role_name`/`audio_url`），
     声纹 ID 列表为 `voiceprint_ids`
-  - 注：协议中服务端内部的 `business` 字段不属于公开 API，SDK 不暴露、不发送
 - 新增 `examples/v3_realtime_asr` / `v3_sentence_asr` / `v3_file_asr` 示例
 - README 改为只承载 v3 协议文档；v2 / v1 协议与客户端说明移至 `docs/v2_protocol.md`
 

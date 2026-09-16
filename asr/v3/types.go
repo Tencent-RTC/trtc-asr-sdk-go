@@ -48,10 +48,6 @@ func NewCredential(sdkAppID int, secretKey string) *common.Credential {
 
 // authBlock is the v3 authentication block (start frame / offline body).
 // Consumed by the gateway only; params never carry these fields.
-//
-// The protocol also defines an internal "business" field (gray/routing
-// dimension managed by the service side, default "OUTER"). It is not part of
-// the public SDK surface and is never sent by this client.
 type authBlock struct {
 	SdkAppID  string `json:"sdkappid"`
 	UserSig   string `json:"usersig"`

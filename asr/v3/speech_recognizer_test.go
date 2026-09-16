@@ -302,9 +302,8 @@ func TestStartFrameWire(t *testing.T) {
 	if auth["usersig"] == "" {
 		t.Error("auth.usersig is empty")
 	}
-	// business 是服务端内部灰度维度，SDK 不暴露、不应下发。
-	if _, ok := auth["business"]; ok {
-		t.Error("auth must not carry the internal business field")
+	if len(auth) != 2 {
+		t.Errorf("auth fields = %v, want only sdkappid and usersig", auth)
 	}
 
 	var params map[string]interface{}

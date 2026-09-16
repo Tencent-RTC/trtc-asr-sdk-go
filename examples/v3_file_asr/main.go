@@ -7,9 +7,6 @@
 //
 // (v3 does not need the Tencent Cloud APPID.)
 //
-// Prerequisite: the server has enabled the EnableV3Route gray switch for
-// your SDKAppID, otherwise requests fail with 404/4001.
-//
 // Usage: go run main.go [-f local.wav | -u https://example.com/audio.wav] [engine]
 package main
 
