@@ -69,6 +69,13 @@ const (
 	// acknowledgement. The server answers right after authentication and
 	// parameter checks, so this only fires on a genuinely unhealthy link.
 	ackTimeout = 5 * time.Second
+
+	// speakerContextAckTimeout replaces ackTimeout while resuming a speaker
+	// context (sync mode + a stored speaker_context_id): the first response
+	// is delayed until the server has loaded the stored speaker snapshot
+	// from COS and restored it in the diarization session, which is slower
+	// than the plain handshake but still bounded.
+	speakerContextAckTimeout = 15 * time.Second
 )
 
 // Wire size limits, mirroring the server side. Checked locally so an
@@ -120,6 +127,12 @@ type SpeechRecognitionResponse struct {
 	MessageID string `json:"message_id"`
 	Final     int    `json:"final"`
 	Result    Result `json:"result"`
+
+	// SpeakerContinue is the speaker-context result carried by the first
+	// response of a session that enabled the speaker context (see
+	// SetEnableSpeakerContext); it also appears on the OnRecognitionStart
+	// callback. Nil when the session did not enable it.
+	SpeakerContinue *SpeakerContinue `json:"speaker_continue,omitempty"`
 }
 
 // Result contains the recognition result details.
@@ -200,30 +213,35 @@ type WordInfo struct {
 // onlineParams is the v3 start frame params block (snake_case wire). Pointer
 // fields distinguish "not sent" from an explicit zero.
 type onlineParams struct {
-	VoiceID            string        `json:"voice_id,omitempty"`
-	EngineModelType    string        `json:"engine_model_type"`
-	Language           string        `json:"language,omitempty"`
-	VoiceFormat        int           `json:"voice_format"`
-	InputSampleRate    *int          `json:"input_sample_rate,omitempty"`
-	Needvad            *int          `json:"needvad,omitempty"`
-	VadSilenceTimeMs   *int          `json:"vad_silence_time,omitempty"`
-	VadLevel           *int          `json:"vad_level,omitempty"`
-	NoiseThreshold     *float64      `json:"noise_threshold,omitempty"`
-	MaxSpeakTime       int           `json:"max_speak_time,omitempty"`
-	FilterDirty        int           `json:"filter_dirty,omitempty"`
-	FilterModal        int           `json:"filter_modal,omitempty"`
-	FilterPunc         int           `json:"filter_punc,omitempty"`
-	FilterEmptyResult  *int          `json:"filter_empty_result,omitempty"`
-	ConvertNumMode     *int          `json:"convert_num_mode,omitempty"`
-	WordInfo           int           `json:"word_info,omitempty"`
-	WordWithSpace      int           `json:"word_with_space,omitempty"`
-	HotwordID          string        `json:"hotword_id,omitempty"`
-	HotwordList        string        `json:"hotword_list,omitempty"`
-	SpeakerDiarization int           `json:"speaker_diarization,omitempty"`
-	SpeakerNumber      int           `json:"speaker_number,omitempty"`
-	VoiceprintIDs      []string      `json:"voiceprint_ids,omitempty"`
-	SpeakerRoles       []SpeakerRole `json:"speaker_roles,omitempty"`
-	Context            *Context      `json:"context,omitempty"`
+	VoiceID            string   `json:"voice_id,omitempty"`
+	EngineModelType    string   `json:"engine_model_type"`
+	Language           string   `json:"language,omitempty"`
+	VoiceFormat        int      `json:"voice_format"`
+	InputSampleRate    *int     `json:"input_sample_rate,omitempty"`
+	Needvad            *int     `json:"needvad,omitempty"`
+	VadSilenceTimeMs   *int     `json:"vad_silence_time,omitempty"`
+	VadLevel           *int     `json:"vad_level,omitempty"`
+	NoiseThreshold     *float64 `json:"noise_threshold,omitempty"`
+	MaxSpeakTime       int      `json:"max_speak_time,omitempty"`
+	FilterDirty        int      `json:"filter_dirty,omitempty"`
+	FilterModal        int      `json:"filter_modal,omitempty"`
+	FilterPunc         int      `json:"filter_punc,omitempty"`
+	FilterEmptyResult  *int     `json:"filter_empty_result,omitempty"`
+	ConvertNumMode     *int     `json:"convert_num_mode,omitempty"`
+	WordInfo           int      `json:"word_info,omitempty"`
+	WordWithSpace      int      `json:"word_with_space,omitempty"`
+	HotwordID          string   `json:"hotword_id,omitempty"`
+	HotwordList        string   `json:"hotword_list,omitempty"`
+	SpeakerDiarization int      `json:"speaker_diarization,omitempty"`
+	SpeakerNumber      int      `json:"speaker_number,omitempty"`
+	// EnableSpeakerContext: 1 (sync) / 2 (async) make the diarization session
+	// resumable; 0 is omitted. SpeakerContextID is the opaque id issued by a
+	// previous session and is only meaningful together with the mode.
+	EnableSpeakerContext int           `json:"enable_speaker_context,omitempty"`
+	SpeakerContextID     string        `json:"speaker_context_id,omitempty"`
+	VoiceprintIDs        []string      `json:"voiceprint_ids,omitempty"`
+	SpeakerRoles         []SpeakerRole `json:"speaker_roles,omitempty"`
+	Context              *Context      `json:"context,omitempty"`
 
 	// SDKInfo carries the SDK self-identification (platform / sdk_lang /
 	// sdk_type / version). It is not a protocol field: the gateway replays the
@@ -282,6 +300,16 @@ type SpeechRecognizer struct {
 	voiceID            string
 	language           string
 	context            *Context
+
+	// Speaker context ("断点续传"): enableSpeakerContext is the requested mode
+	// (0/1/2), speakerContextID the id issued by an earlier session.
+	enableSpeakerContext int
+	speakerContextID     string
+
+	// speakerContinue holds the handshake result of the first response
+	// (speaker_continue). Written by connect before Start returns and read by
+	// readLoop and by callers, hence the atomic pointer.
+	speakerContinue atomic.Pointer[SpeakerContinue]
 
 	// State management.
 	//
@@ -472,6 +500,44 @@ func (r *SpeechRecognizer) SetVoiceprintIDs(ids []string) {
 	r.voiceprintIDs = append([]string(nil), ids...)
 }
 
+// SetEnableSpeakerContext makes the speaker-diarization session resumable
+// ("说话人分离断点续传") and selects how the server reports the handshake:
+//
+//	SpeakerContextOff   (0) off (default): no speaker context is saved or
+//	                        returned, and SetSpeakerContextID is ignored
+//	SpeakerContextSync  (1) the first response waits for the stored speaker
+//	                        snapshot to be applied and reports the outcome
+//	                        through SpeakerContinue.ContinueStatus
+//	SpeakerContextAsync (2) the first response answers immediately with the
+//	                        speaker_context_id only (no status); use this to
+//	                        keep reconnects fast
+//
+// Requires SetSpeakerDiarization(1) or (3). See SpeakerContinue for the
+// reconnect workflow.
+func (r *SpeechRecognizer) SetEnableSpeakerContext(mode int) {
+	r.enableSpeakerContext = mode
+}
+
+// SetSpeakerContextID passes back the speaker_context_id returned by a
+// previous session (SpeakerContinue.SpeakerContextID) so this session resumes
+// the same speaker identities instead of numbering speakers from scratch.
+//
+// It only takes effect together with SetEnableSpeakerContext(1) or (2). The
+// server ignores an expired or unknown id and starts a new session, so a stale
+// value does not fail the connection; always overwrite the stored id with the
+// one returned by the latest first response.
+func (r *SpeechRecognizer) SetSpeakerContextID(id string) {
+	r.speakerContextID = strings.TrimSpace(id)
+}
+
+// SpeakerContinue returns the speaker-context result carried by the first
+// server response, or nil when the session did not enable the speaker context
+// (or has not been started yet). It is available once Start returns and is
+// also delivered to OnRecognitionStart.
+func (r *SpeechRecognizer) SpeakerContinue() *SpeakerContinue {
+	return r.speakerContinue.Load()
+}
+
 // SetVoiceID sets a custom voice ID. If not set, a UUID will be generated.
 // The UserSig is bound to this value, so a custom voice ID is signed
 // automatically — no extra work needed.
@@ -576,6 +642,9 @@ func (r *SpeechRecognizer) validateOptions() error {
 			"VoiceID length must not exceed %d", maxVoiceIDLen)
 	}
 	if err := validateSpeakerDiarization(r.speakerDiarization, r.speakerNumber, r.speakerRoles, r.voiceprintIDs); err != nil {
+		return err
+	}
+	if err := validateSpeakerContext(r.enableSpeakerContext, r.speakerDiarization); err != nil {
 		return err
 	}
 	if err := validateVadTuning(r.vadLevel, r.noiseThreshold); err != nil {
@@ -729,6 +798,27 @@ func (r *SpeechRecognizer) Stop() error {
 	return nil
 }
 
+// ackWait returns how long connect waits for the first response. Resuming a
+// speaker context in sync mode makes the server apply the stored snapshot
+// before answering the handshake, so that path gets a longer budget than the
+// plain handshake; every other case answers immediately.
+func (r *SpeechRecognizer) ackWait() time.Duration {
+	if r.enableSpeakerContext == SpeakerContextSync && r.speakerContextID != "" {
+		return speakerContextAckTimeout
+	}
+	return ackTimeout
+}
+
+// speakerContextIDForWire returns the id only when the caller opted in.
+// Mode 0 omits enable_speaker_context via omitempty, but a non-empty id
+// would still be serialized.
+func (r *SpeechRecognizer) speakerContextIDForWire() string {
+	if r.enableSpeakerContext == SpeakerContextOff {
+		return ""
+	}
+	return r.speakerContextID
+}
+
 // connect dials /asr/v3, sends the start frame and waits for the server ack.
 // It returns the first downlink frame when that frame already carries a
 // result (the ack frame itself is consumed here and not reported again).
@@ -784,7 +874,7 @@ func (r *SpeechRecognizer) connect() ([]byte, error) {
 
 	// Wait for the ack. A failure arrives as a structured error frame
 	// ({code,message,voice_id}) followed by a normal close.
-	_ = conn.SetReadDeadline(time.Now().Add(ackTimeout))
+	_ = conn.SetReadDeadline(time.Now().Add(r.ackWait()))
 	messageType, message, err := conn.ReadMessage()
 	_ = conn.SetReadDeadline(time.Time{})
 	if err != nil {
@@ -800,6 +890,9 @@ func (r *SpeechRecognizer) connect() ([]byte, error) {
 		Code    int              `json:"code"`
 		Message string           `json:"message"`
 		Result  *json.RawMessage `json:"result"`
+		// speaker_continue is present only when the session enabled the
+		// speaker context; it carries the id to persist for a later resume.
+		SpeakerContinue *SpeakerContinue `json:"speaker_continue"`
 	}
 	if err := json.Unmarshal(message, &ack); err != nil {
 		conn.Close()
@@ -809,6 +902,7 @@ func (r *SpeechRecognizer) connect() ([]byte, error) {
 		conn.Close()
 		return nil, serverError(ack.Code, ack.Message, "")
 	}
+	r.speakerContinue.Store(ack.SpeakerContinue)
 
 	r.conn = conn
 	if ack.Result != nil {
@@ -839,10 +933,16 @@ func (r *SpeechRecognizer) buildStartFrame(userSig string) ([]byte, error) {
 		HotwordList:        r.hotwordList,
 		SpeakerDiarization: r.speakerDiarization,
 		SpeakerNumber:      r.speakerNumber,
-		VoiceprintIDs:      r.voiceprintIDs,
-		SpeakerRoles:       r.speakerRoles,
-		Context:            r.context,
-		SDKInfo:            common.SDKReportParams(),
+
+		// enable_speaker_context / speaker_context_id are only sent when the
+		// caller opted in. A stored id with the mode left at 0 must not ride
+		// along: omitempty would still emit a non-empty string.
+		EnableSpeakerContext: r.enableSpeakerContext,
+		SpeakerContextID:     r.speakerContextIDForWire(),
+		VoiceprintIDs:        r.voiceprintIDs,
+		SpeakerRoles:         r.speakerRoles,
+		Context:              r.context,
+		SDKInfo:              common.SDKReportParams(),
 	}
 	if r.inputSampleRate != 0 {
 		params.InputSampleRate = intPtr(r.inputSampleRate)
@@ -903,6 +1003,9 @@ func (r *SpeechRecognizer) readLoop(firstFrame []byte) {
 			Code:    0,
 			Message: "success",
 			VoiceID: r.voiceID,
+			// The ack itself is consumed by connect; re-attach the speaker
+			// context it carried so callback-style callers see the id/status.
+			SpeakerContinue: r.speakerContinue.Load(),
 		})
 	})
 

@@ -53,7 +53,7 @@ v3 把请求拆成两个正交的块，字段全程 snake_case：
 | `usersig` | string | 是 | TRTC 签名，identifier = 当前 `voice_id`（SDK 按该值签发） |
 
 - **在线没有 `request_id`**：request_id 是离线「一次请求 = 一个事务」的概念（见下），流式协议里不存在。
-- `voice_id` 同时出现在 URL `?voice_id=` 与 `params.voice_id`（两者一致或省略），≤128 字符；SDK 默认生成 uuid，可用 `SetVoiceID` 指定；与活跃流冲突会返回 `4001`。
+- `voice_id` 同时出现在 URL `?voice_id=` 与 `params.voice_id`（两者一致或省略），≤128 字符；SDK 默认生成 uuid，可用 `SetVoiceID` 指定；客户端需自行保证 voice_id 唯一（推荐 UUID），重复的 voice_id 当前不会被服务端拒绝，多条连接各自独立识别。
 - 一条流一个签名，随连接生成；重连即重签，不需要自己维护有效期。
 
 WebSocket 建连后 **3 秒内**发送首帧 JSON：
@@ -149,21 +149,24 @@ sequenceDiagram
 | `hotword_list` | string | 空 | 临时热词：`词\|权重` 逗号分隔，词 ≤30 字符，权重 1~11 或 100 |
 | `speaker_diarization` | int | `0` | 说话人分离：`0` 关 / `1` 匿名聚类 / `3` 声纹角色认证 |
 | `speaker_number` | int | `0` | 说话人数量提示，`0` 自动检测 |
+| `enable_speaker_context` | int | `0` | 说话人分离**断点续传**：`0` 关 / `1` 同步返回恢复状态 / `2` 首响应立即返回（只给 id）；需配合 `speaker_diarization=1/3` |
+| `speaker_context_id` | string | 空 | 上次首响应返回的上下文 ID，用于续传同一批说话人的编号 |
 | `voiceprint_ids` | []string | 空 | 已注册声纹 ID（仅 `speaker_diarization=3`） |
 | `speaker_roles` | []object | 空 | 临时声纹：`[{"audio_url":"...","role_name":"..."}]`（仅模式 3），`role_name` 会回显到结果 |
 | `context` | object | 空 | 识别上下文：`{"text":"背景文本","terms":["术语"],"general":[{"key":"domain","value":"Meeting"}]}` |
 
-> `context` 消费方式与引擎能力相关：大模型类引擎可用 `text`/`terms`/`general`，传统引擎仅把 `terms` 降级为热词。`speaker_diarization=1/3` 时服务端会强制开启 VAD 并调整 `word_info`。
+> `context` 消费方式与引擎能力相关：大模型类引擎可用 `text`/`terms`/`general`，传统引擎仅把 `terms` 降级为热词。`speaker_diarization=1/3` 时服务端会强制开启 VAD 并调整 `word_info`。`enable_speaker_context` 只在开启说话人分离时有效，SDK 会在本地拒绝「只开断点续传、不开分离」的组合。
 
 ### 在线响应
 
-下行消息结构与 v2 完全一致（`code` / `message` / `voice_id` / `message_id` / `result` / `final`）：
+下行消息结构与 v2 完全一致（`code` / `message` / `voice_id` / `message_id` / `result` / `final`），首响应在开启断点续传时额外携带 `speaker_continue`：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `code` / `message` | Integer / String | 错误码与提示，`0` 表示成功 |
 | `voice_id` / `message_id` | String | 音频流 ID / 单条消息 ID |
 | `final` | Integer | `1` 表示会话结束包 |
+| `speaker_continue` | Object | 仅在开启 `enable_speaker_context` 时的首响应返回，见[说话人分离断点续传](#说话人分离断点续传) |
 | `result.slice_type` | Integer | `0` 句子开始，`1` 中间结果，`2` 句末稳定结果 |
 | `result.index` | Integer | 句子序号 |
 | `result.start_time` / `end_time` | Integer | 当前结果起止时间（ms） |
@@ -329,7 +332,7 @@ sequenceDiagram
 | code | 说明 | 常见触发 |
 |------|------|----------|
 | `4000` | 音频发送过多 | 1 秒内最多发送 3 秒音频 |
-| `4001` | 参数不合法 | params 校验失败 / `voice_id` 冲突 |
+| `4001` | 参数不合法 | params 校验失败 |
 | `4002` | 鉴权失败 | `auth` 缺失 / `usersig` 验签不通过 / 查询他人任务 |
 | `4003` | 服务未开通 | 调度拒绝 |
 | `4006` | 并发超限 | 账号并发或连接数超限 |
@@ -387,6 +390,57 @@ func (l *MyListener) OnSentenceEnd(resp *v3.SpeechRecognitionResponse) {
     }
 }
 ```
+
+### 说话人分离断点续传
+
+默认情况下 `speaker_id` 只在单条连接内有效：断线重连或多段录音会从 `1` 重新编号。开启 **断点续传** 后，服务端会把本次会话已固化的说话人身份（声纹锚点）保存下来，并返回一个不透明的 `speaker_context_id`；下次连接带上同一个 ID，同一批人继续使用原来的 `speaker_id`。
+
+调用方式（`speaker_diarization` 必须同时开启）：
+
+```go
+// 首次连接：声明要保存/恢复说话人上下文
+recognizer.SetSpeakerDiarization(v3.SpeakerDiarizationCluster)
+recognizer.SetEnableSpeakerContext(v3.SpeakerContextSync) // 1=同步，2=异步（见下表）
+recognizer.Start()
+if sc := recognizer.SpeakerContinue(); sc != nil {        // 也可在 OnRecognitionStart 回调里读
+    save("speaker_context_id", sc.SpeakerContextID)       // 持久化，供下次重连使用
+}
+
+// 断线重连：带上上次保存的 ID（应在 24h 内）
+recognizer.SetSpeakerDiarization(v3.SpeakerDiarizationCluster)
+recognizer.SetEnableSpeakerContext(v3.SpeakerContextSync)
+recognizer.SetSpeakerContextID(load("speaker_context_id"))
+recognizer.Start() // 首响应 continue_status=resumed 表示说话人锚点已恢复
+```
+
+首响应 `speaker_continue` 字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `continue_status` | String | `fresh` 新会话（返回新签发的 id）/ `resumed` 已恢复说话人锚点 / `degraded` 有恢复意图但加载或恢复失败（按新会话继续，编号可能重置）/ `disabled` 服务端未保存上下文；异步模式（`2`）不返回该字段 |
+| `speaker_context_id` | String | 上下文 ID，下次连接通过 `SetSpeakerContextID` 传回；**以最新一次首响应为准**，被重新签发时请覆盖本地保存值 |
+
+两种模式：
+
+| `enable_speaker_context` | 行为 |
+|------|------|
+| `1`（同步） | 携带 `speaker_context_id` 时，服务端先加载快照再回首响应，因此能拿到真实 `continue_status`；首次签发立刻返回 `fresh` |
+| `2`（异步） | 首响应不等待快照加载，只返回 `speaker_context_id`（无 `continue_status`）；服务端在后台恢复，重连更快。同一续传任务需持续回传同一个 ID（即使快照过期也不会重签） |
+
+约束与语义：
+
+- 需要续传时建连必须同时带 `enable_speaker_context=1/2` 与保存的 `speaker_context_id`；**未带、过期或非法 ID 一律按新会话处理**，不会报错。
+- 恢复的是**说话人身份**：新连接的识别时间与说话人时间都从 `0` 开始；ASR 文本上下文、断点期间未发送的音频不恢复；尚未固化的说话人可能在重连后重新编号。
+- 正常结束（`Stop()`）与异常断连都会保存快照，快照默认 24h 有效，不会在恢复后删除。
+- 同一个 `speaker_context_id` 同时只允许一条活动连接，并发复用不保证一致性。
+- v3 的 `Start()` 仅在同步模式且携带 `speaker_context_id` 时等待快照加载，这条路径的首响应上限从 5s 放宽到 15s；首次签发、异步模式以及未开启续传仍是 5s。v2 的 `Start()` 在 WebSocket 建连后即返回，没有这段等待。
+
+> **v2 实时接口同样支持断点续传**：URL query 参数 `enable_speaker_context`（`1` 同步 / `2` 异步）与
+> `speaker_context_id`，语义与上文一致；首响应同样携带 `speaker_continue`。Go 侧 API 为
+> `SetEnableSpeakerContext` / `SetSpeakerContextID` / `SpeakerContinue()`（见
+> `SpeechRecognizer.SpeakerContinue()`）。注意 v2 的 `OnRecognitionStart` 在建连后本地合成
+> （早于服务端首响应），因此该值只能事后通过 getter 读取，无法从开始回调里拿。
+> 同步续传（模式 `1` 且带了 id）时，服务端在快照加载完成前不读音频，请等 `SpeakerContinue()` 有值再 `Write`。
 
 ### VAD 调优（noise_threshold / vad_level）
 
@@ -521,6 +575,8 @@ fmt.Println(status.Result, status.AudioDuration, status.ResultDetail)
 | `SetSpeakerNumber(n)` | 说话人数量提示（分离开启时生效） | 0 (自动) |
 | `SetSpeakerRoles(roles)` | 临时声纹角色（仅模式 3，`{RoleName, AudioURL}`） | - |
 | `SetVoiceprintIDs(ids)` | 已注册声纹 ID（仅模式 3） | - |
+| `SetEnableSpeakerContext(m)` | 说话人分离断点续传：0 关 / 1 同步 / 2 异步 | 0 (关闭) |
+| `SetSpeakerContextID(id)` | 续传上次返回的 `speaker_context_id` | - |
 | `SetLanguage(lang)` | 指定识别语言 | 自动检测 |
 | `SetVoiceID(id)` | 自定义 voice_id（UserSig 自动绑定该值） | 自动 UUID |
 | `SetContext(ctx)` | 识别上下文（`text`/`terms`/`general`） | - |

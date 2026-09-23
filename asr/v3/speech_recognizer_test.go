@@ -30,6 +30,7 @@ type testListener struct {
 	endN       int
 	completeN  int
 	failN      int
+	startCh    chan *SpeechRecognitionResponse
 	sentenceCh chan *SpeechRecognitionResponse
 	failCh     chan failEvent
 	completeCh chan *SpeechRecognitionResponse
@@ -37,6 +38,7 @@ type testListener struct {
 
 func newTestListener() *testListener {
 	return &testListener{
+		startCh:    make(chan *SpeechRecognitionResponse, 8),
 		sentenceCh: make(chan *SpeechRecognitionResponse, 8),
 		failCh:     make(chan failEvent, 8),
 		completeCh: make(chan *SpeechRecognitionResponse, 8),
@@ -47,6 +49,10 @@ func (l *testListener) OnRecognitionStart(resp *SpeechRecognitionResponse) {
 	l.mu.Lock()
 	l.startN++
 	l.mu.Unlock()
+	select {
+	case l.startCh <- resp:
+	default:
+	}
 }
 
 func (l *testListener) OnSentenceBegin(resp *SpeechRecognitionResponse) {
@@ -249,6 +255,8 @@ func TestStartFrameWire(t *testing.T) {
 	r.SetSpeakerDiarization(SpeakerDiarizationVoiceprint)
 	r.SetSpeakerRoles([]SpeakerRole{{RoleName: "teacher", AudioURL: "https://example.com/t.wav"}})
 	r.SetVoiceprintIDs([]string{"vp-1"})
+	r.SetEnableSpeakerContext(SpeakerContextSync)
+	r.SetSpeakerContextID(strings.Repeat("a", 64))
 	r.SetContext(&Context{Text: "bg", Terms: []string{"ASR"}, General: []ContextKV{{Key: "domain", Value: "Meeting"}}})
 
 	if err := r.Start(); err != nil {
@@ -322,6 +330,9 @@ func TestStartFrameWire(t *testing.T) {
 		"hotword_list":        "深度学习|10",
 		"speaker_diarization": float64(3),
 		"voiceprint_ids":      []interface{}{"vp-1"},
+		// Speaker context ("断点续传"): the mode and the id travel in params.
+		"enable_speaker_context": float64(1),
+		"speaker_context_id":     strings.Repeat("a", 64),
 	}
 	for k, v := range want {
 		got, ok := params[k]
@@ -634,6 +645,7 @@ func TestStartFrameDefaults(t *testing.T) {
 	for _, absent := range []string{
 		"vad_level", "noise_threshold", "filter_empty_result",
 		"vad_silence_time", "input_sample_rate",
+		"enable_speaker_context", "speaker_context_id",
 	} {
 		if _, ok := params[absent]; ok {
 			t.Errorf("params.%s must be absent when its setter was not called (got %v)", absent, params[absent])
@@ -652,6 +664,186 @@ func TestStartFrameDefaults(t *testing.T) {
 	// engine_model_type is required on the wire.
 	if params["engine_model_type"] != "16k_zh_en" {
 		t.Errorf("params.engine_model_type = %v", params["engine_model_type"])
+	}
+}
+
+// TestSpeakerContinueHandshake pins the speaker-context ("断点续传") handshake
+// surface: the first response's speaker_continue block reaches both the
+// SpeakerContinue getter and the OnRecognitionStart callback, and a session
+// that did not enable the context sees none.
+func TestSpeakerContinueHandshake(t *testing.T) {
+	const contextID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+	newAck := func(extra map[string]interface{}) map[string]interface{} {
+		ack := ackFrame("v1")
+		for k, v := range extra {
+			ack[k] = v
+		}
+		return ack
+	}
+
+	cases := []struct {
+		name          string
+		ack           map[string]interface{}
+		enableContext bool
+		wantStatus    string
+		wantID        string
+	}{
+		{
+			name: "resumed",
+			ack: newAck(map[string]interface{}{"speaker_continue": map[string]interface{}{
+				"continue_status": "resumed", "speaker_context_id": contextID,
+			}}),
+			enableContext: true,
+			wantStatus:    ContinueStatusResumed,
+			wantID:        contextID,
+		},
+		{
+			name: "first issue reports fresh and the new id",
+			ack: newAck(map[string]interface{}{"speaker_continue": map[string]interface{}{
+				"continue_status": "fresh", "speaker_context_id": contextID,
+			}}),
+			enableContext: true,
+			wantStatus:    ContinueStatusFresh,
+			wantID:        contextID,
+		},
+		{
+			name: "async keeps the requested id without a status",
+			ack: newAck(map[string]interface{}{"speaker_continue": map[string]interface{}{
+				"speaker_context_id": contextID,
+			}}),
+			enableContext: true,
+			wantStatus:    "",
+			wantID:        contextID,
+		},
+		{
+			name:          "context disabled",
+			ack:           newAck(nil),
+			enableContext: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := startV3Server(t, func(conn *websocket.Conn, s *v3Server) {
+				writeJSON(t, conn, tc.ack)
+				s.readAudioUntilEnd(conn)
+				writeJSON(t, conn, resultFrame(2, 1, "done"))
+			})
+
+			listener := newTestListener()
+			r := newRecognizerForTest(t, listener)
+			r.SetEndpoint(s.wsURL())
+			r.SetVoiceID("v1")
+			if tc.enableContext {
+				r.SetSpeakerDiarization(SpeakerDiarizationCluster)
+				r.SetEnableSpeakerContext(SpeakerContextSync)
+				if tc.wantStatus == "" {
+					r.SetEnableSpeakerContext(SpeakerContextAsync)
+				}
+			}
+
+			if err := r.Start(); err != nil {
+				t.Fatalf("Start failed: %v", err)
+			}
+			defer r.Stop()
+
+			// The getter is usable as soon as Start returns.
+			got := r.SpeakerContinue()
+			if !tc.enableContext {
+				if got != nil {
+					t.Fatalf("SpeakerContinue() = %+v, want nil when the context is off", got)
+				}
+			} else {
+				if got == nil {
+					t.Fatal("SpeakerContinue() = nil, want the handshake result")
+				}
+				if got.ContinueStatus != tc.wantStatus {
+					t.Errorf("ContinueStatus = %q, want %q", got.ContinueStatus, tc.wantStatus)
+				}
+				if got.SpeakerContextID != tc.wantID {
+					t.Errorf("SpeakerContextID = %q, want %q", got.SpeakerContextID, tc.wantID)
+				}
+			}
+
+			// The same block is delivered on OnRecognitionStart.
+			select {
+			case startResp := <-listener.startCh:
+				switch {
+				case !tc.enableContext && startResp.SpeakerContinue != nil:
+					t.Errorf("OnRecognitionStart speaker_continue = %+v, want nil", startResp.SpeakerContinue)
+				case tc.enableContext && startResp.SpeakerContinue == nil:
+					t.Error("OnRecognitionStart is missing speaker_continue")
+				case tc.enableContext && startResp.SpeakerContinue.SpeakerContextID != tc.wantID:
+					t.Errorf("OnRecognitionStart speaker_context_id = %q, want %q",
+						startResp.SpeakerContinue.SpeakerContextID, tc.wantID)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("timeout waiting for OnRecognitionStart")
+			}
+		})
+	}
+}
+
+// TestSpeakerContextIDOmittedWhenDisabled pins that a stored id does not
+// appear on the wire once the mode is turned back off. omitempty would
+// otherwise keep a non-empty speaker_context_id.
+func TestSpeakerContextIDOmittedWhenDisabled(t *testing.T) {
+	s := startV3Server(t, func(conn *websocket.Conn, srv *v3Server) {
+		writeJSON(t, conn, ackFrame("v1"))
+		srv.readAudioUntilEnd(conn)
+		writeJSON(t, conn, resultFrame(2, 1, "done"))
+	})
+
+	r := newRecognizerForTest(t, newTestListener())
+	r.SetEndpoint(s.wsURL())
+	r.SetSpeakerDiarization(SpeakerDiarizationCluster)
+	r.SetEnableSpeakerContext(SpeakerContextSync)
+	r.SetSpeakerContextID(strings.Repeat("c", 64))
+	r.SetEnableSpeakerContext(SpeakerContextOff)
+	if err := r.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer r.Stop()
+
+	var frame struct {
+		Params map[string]interface{} `json:"params"`
+	}
+	if err := json.Unmarshal(s.getStartFrame(), &frame); err != nil {
+		t.Fatalf("start frame is not JSON: %v", err)
+	}
+	if _, ok := frame.Params["enable_speaker_context"]; ok {
+		t.Errorf("enable_speaker_context = %v, want absent", frame.Params["enable_speaker_context"])
+	}
+	if _, ok := frame.Params["speaker_context_id"]; ok {
+		t.Errorf("speaker_context_id = %v, want absent when the mode is off", frame.Params["speaker_context_id"])
+	}
+}
+
+// TestAckWaitSpeakerContextResume pins when Start widens its first-response
+// budget: only sync mode with a stored id makes the server apply the snapshot
+// before answering.
+func TestAckWaitSpeakerContextResume(t *testing.T) {
+	r := newRecognizerForTest(t, newTestListener())
+	if got := r.ackWait(); got != ackTimeout {
+		t.Errorf("ackWait() = %v, want %v", got, ackTimeout)
+	}
+
+	// Sync mode without an id is a first issue: the server answers at once.
+	r.SetSpeakerDiarization(SpeakerDiarizationCluster)
+	r.SetEnableSpeakerContext(SpeakerContextSync)
+	if got := r.ackWait(); got != ackTimeout {
+		t.Errorf("ackWait() = %v, want %v before any context id exists", got, ackTimeout)
+	}
+
+	r.SetSpeakerContextID(strings.Repeat("b", 64))
+	if got := r.ackWait(); got != speakerContextAckTimeout {
+		t.Errorf("ackWait() = %v, want %v while resuming", got, speakerContextAckTimeout)
+	}
+
+	r.SetEnableSpeakerContext(SpeakerContextAsync)
+	if got := r.ackWait(); got != ackTimeout {
+		t.Errorf("ackWait() = %v, want %v in async mode", got, ackTimeout)
 	}
 }
 
@@ -681,6 +873,13 @@ func TestValidationLocal(t *testing.T) {
 		{"vad_level invalid", func(r *SpeechRecognizer) { r.SetVadLevel(2) }},
 		{"noise_threshold out of range", func(r *SpeechRecognizer) { r.SetNoiseThreshold(4.1) }},
 		{"diarization invalid", func(r *SpeechRecognizer) { r.SetSpeakerDiarization(2) }},
+		{"enable_speaker_context invalid", func(r *SpeechRecognizer) {
+			r.SetSpeakerDiarization(SpeakerDiarizationCluster)
+			r.SetEnableSpeakerContext(3)
+		}},
+		{"enable_speaker_context without diarization", func(r *SpeechRecognizer) {
+			r.SetEnableSpeakerContext(SpeakerContextSync)
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -711,6 +910,15 @@ func TestValidationLocal(t *testing.T) {
 		}},
 		{"voice_format wav", func(r *SpeechRecognizer) { r.SetVoiceFormat(12) }},
 		{"word_info caption", func(r *SpeechRecognizer) { r.SetWordInfo(100) }},
+		{"speaker context sync", func(r *SpeechRecognizer) {
+			r.SetSpeakerDiarization(SpeakerDiarizationCluster)
+			r.SetEnableSpeakerContext(SpeakerContextSync)
+			r.SetSpeakerContextID(strings.Repeat("c", 64))
+		}},
+		{"speaker context async without id", func(r *SpeechRecognizer) {
+			r.SetSpeakerDiarization(SpeakerDiarizationVoiceprint)
+			r.SetEnableSpeakerContext(SpeakerContextAsync)
+		}},
 	}
 	for _, tc := range valid {
 		t.Run(tc.name, func(t *testing.T) {

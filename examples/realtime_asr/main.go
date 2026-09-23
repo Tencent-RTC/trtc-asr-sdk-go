@@ -104,6 +104,10 @@ func main() {
 	engine := flag.String("e", "", "engine model type, required (e.g. bigmodel)")
 	lang := flag.String("lang", "", "language hint; when omitted, the bigmodel engine uses zh")
 	diarization := flag.Int("diarization", 0, "speaker diarization: 0=off, 1=cluster, 3=voiceprint roles")
+	speakerContext := flag.Int("speaker-context", 0,
+		"resumable speaker diarization: 0=off, 1=sync, 2=async")
+	speakerContextID := flag.String("speaker-context-id", "",
+		"speaker_context_id printed by an earlier run: resume the same speaker identities")
 	speakerNumber := flag.Int("speakers", 0, "expected speaker count hint (0=auto), only for -diarization=3")
 	roleSpec := flag.String("roles", "", "voiceprint roles for -diarization=3: \"name=https://url,name2=https://url2\"")
 	wordInfo := flag.Int("word-info", 0, "word-level timestamps: 0=off, 1=on, 2=with punctuation")
@@ -131,13 +135,15 @@ func main() {
 	}
 
 	opts := recognizerOptions{
-		language:       *lang,
-		diarization:    *diarization,
-		speakerNumber:  *speakerNumber,
-		roles:          parseRoles(*roleSpec),
-		wordInfo:       *wordInfo,
-		vadLevel:       *vadLevel,
-		noiseThreshold: *noiseThreshold,
+		language:         *lang,
+		diarization:      *diarization,
+		speakerContext:   *speakerContext,
+		speakerContextID: *speakerContextID,
+		speakerNumber:    *speakerNumber,
+		roles:            parseRoles(*roleSpec),
+		wordInfo:         *wordInfo,
+		vadLevel:         *vadLevel,
+		noiseThreshold:   *noiseThreshold,
 	}
 
 	if AppID == 0 || SdkAppID == 0 || SecretKey == "" {
@@ -175,11 +181,13 @@ func main() {
 // recognizerOptions groups the optional recognition settings so the worker
 // signature stays readable as more knobs are added.
 type recognizerOptions struct {
-	language      string
-	diarization   int
-	speakerNumber int
-	roles         []asr.SpeakerRole
-	wordInfo      int
+	language         string
+	diarization      int
+	speakerContext   int
+	speakerContextID string
+	speakerNumber    int
+	roles            []asr.SpeakerRole
+	wordInfo         int
 	// vadLevel / noiseThreshold are only applied when non-negative, mirroring
 	// the SDK's "explicit 0 differs from unset" semantics.
 	vadLevel       int
@@ -197,6 +205,12 @@ func (o recognizerOptions) apply(r *asr.SpeechRecognizer) {
 	if o.diarization != 0 {
 		r.SetSpeakerDiarization(o.diarization)
 		r.SetSpeakerNumber(o.speakerNumber)
+		if o.speakerContext != 0 {
+			r.SetEnableSpeakerContext(o.speakerContext)
+		}
+		if o.speakerContextID != "" {
+			r.SetSpeakerContextID(o.speakerContextID)
+		}
 		if len(o.roles) > 0 {
 			r.SetSpeakerRoles(o.roles)
 		}
@@ -285,6 +299,29 @@ func processAudio(id int, filePath string, opts recognizerOptions) {
 	if err := recognizer.Start(); err != nil {
 		log.Printf("[%d] Failed to start recognizer: %v", id, err)
 		return
+	}
+
+	// v2 Start returns when the WebSocket is up. In sync resume the server
+	// does not read audio until the snapshot is loaded and the first response
+	// is sent, so wait for that handshake before writing.
+	if opts.speakerContext != 0 {
+		wait := 2 * time.Second
+		if opts.speakerContext == asr.SpeakerContextSync && opts.speakerContextID != "" {
+			wait = 15 * time.Second
+		}
+		deadline := time.Now().Add(wait)
+		var sc *asr.SpeakerContinue
+		for time.Now().Before(deadline) {
+			if sc = recognizer.SpeakerContinue(); sc != nil {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		if sc != nil {
+			log.Printf("[%d] speaker context: status=%q id=%s", id, sc.ContinueStatus, sc.SpeakerContextID)
+		} else if opts.speakerContext == asr.SpeakerContextSync && opts.speakerContextID != "" {
+			log.Printf("[%d] speaker context handshake not received within %s; sending audio anyway", id, wait)
+		}
 	}
 
 	buf := make([]byte, sliceSize)

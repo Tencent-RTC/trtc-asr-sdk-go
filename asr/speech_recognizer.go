@@ -100,6 +100,20 @@ type SpeechRecognitionResponse struct {
 	MessageID string `json:"message_id"`
 	Final     int    `json:"final"`
 	Result    Result `json:"result"`
+
+	// SpeakerContinue carries the resumable-diarization handshake of the
+	// first server response; only present when enable_speaker_context is set.
+	SpeakerContinue *SpeakerContinue `json:"speaker_continue,omitempty"`
+}
+
+// SpeakerContinue describes the speaker-context handshake of the first
+// response: ContinueStatus is fresh (new session) / resumed (the stored
+// speaker anchors were applied) / degraded / disabled, and SpeakerContextID
+// is the opaque id to pass back via SetSpeakerContextID on a later
+// connection.
+type SpeakerContinue struct {
+	ContinueStatus   string `json:"continue_status,omitempty"`
+	SpeakerContextID string `json:"speaker_context_id,omitempty"`
 }
 
 // Result contains the speech recognition result details.
@@ -190,6 +204,11 @@ const (
 	SpeakerDiarizationCluster = common.SpeakerDiarizationCluster
 	// SpeakerDiarizationVoiceprint enables voiceprint role authentication.
 	SpeakerDiarizationVoiceprint = common.SpeakerDiarizationVoiceprint
+
+	// Speaker context ("断点续传") modes accepted by SetEnableSpeakerContext.
+	SpeakerContextOff   = 0
+	SpeakerContextSync  = 1
+	SpeakerContextAsync = 2
 )
 
 // SpeechRecognizer is the main client for real-time speech recognition.
@@ -209,31 +228,34 @@ type SpeechRecognizer struct {
 	conn       *websocket.Conn
 
 	// Configuration
-	endpoint           string
-	engineModelType    string
-	voiceFormat        int
-	needVad            int
-	convertNumMode     int
-	hotwordID          string
-	hotwordList        string
-	customizationID    string
-	replaceTextID      string
-	filterDirty        int
-	filterModal        int
-	filterPunc         int
-	filterEmptyResult  *int
-	wordInfo           int
-	vadSilenceTime     int
-	vadLevel           *int
-	noiseThreshold     *float64
-	maxSpeakTime       int
-	inputSampleRate    int
-	speakerDiarization int
-	speakerNumber      int
-	speakerRoles       []SpeakerRole
-	voiceprintIDs      []string
-	voiceID            string
-	language           string // bigmodel engine language hint
+	endpoint             string
+	engineModelType      string
+	voiceFormat          int
+	needVad              int
+	convertNumMode       int
+	hotwordID            string
+	hotwordList          string
+	customizationID      string
+	replaceTextID        string
+	filterDirty          int
+	filterModal          int
+	filterPunc           int
+	filterEmptyResult    *int
+	wordInfo             int
+	vadSilenceTime       int
+	vadLevel             *int
+	noiseThreshold       *float64
+	maxSpeakTime         int
+	inputSampleRate      int
+	speakerDiarization   int
+	speakerNumber        int
+	enableSpeakerContext int
+	speakerContextID     string
+	speakerContinue      atomic.Pointer[SpeakerContinue]
+	speakerRoles         []SpeakerRole
+	voiceprintIDs        []string
+	voiceID              string
+	language             string // bigmodel engine language hint
 
 	// State management.
 	//
@@ -427,6 +449,32 @@ func (r *SpeechRecognizer) SetSpeakerNumber(n int) {
 	r.speakerNumber = n
 }
 
+// SetEnableSpeakerContext makes the diarization session resumable
+// ("说话人分离断点续传"): the server stores the settled speaker anchors and
+// hands back an opaque speaker_context_id on the first response, which a
+// later connection passes to SetSpeakerContextID to keep the same speakers
+// on the same ids.
+//
+//	SpeakerContextSync  (1) the first response waits for the stored snapshot
+//	                       and reports continue_status (fresh/resumed/...)
+//	SpeakerContextAsync (2) the first response answers immediately with the
+//	                       id only; the restore happens in the background
+//
+// Requires SetSpeakerDiarization(1) or (3); Start fails locally otherwise.
+// Unlike v3, v2 signals the session start before the server's first
+// response, so the handshake result is only available through
+// SpeakerContinue() once that response has arrived.
+func (r *SpeechRecognizer) SetEnableSpeakerContext(mode int) {
+	r.enableSpeakerContext = mode
+}
+
+// SetSpeakerContextID passes back the speaker_context_id returned by a
+// previous session (see SpeakerContinue). Expired or unknown ids simply
+// start a new session instead of failing.
+func (r *SpeechRecognizer) SetSpeakerContextID(id string) {
+	r.speakerContextID = strings.TrimSpace(id)
+}
+
 // SetSpeakerRoles registers temporary voiceprints for this session. Each role
 // carries a name and the URL of its enrollment audio; the name is echoed back
 // as SpeakerName on matched words and speaker segments.
@@ -499,6 +547,15 @@ func (r *SpeechRecognizer) SetStopTimeout(timeout time.Duration) {
 	r.stopTimeout = timeout
 }
 
+// SpeakerContinue returns the resumable-diarization handshake carried by the
+// first server response, or nil when the session did not enable
+// SetEnableSpeakerContext. v2 synthesizes OnRecognitionStart locally before
+// that response arrives, so unlike v3 this value cannot be read from the
+// start callback — poll it or read it after the first result callbacks.
+func (r *SpeechRecognizer) SpeakerContinue() *SpeakerContinue {
+	return r.speakerContinue.Load()
+}
+
 // Start initiates the WebSocket connection and begins the recognition session.
 // It returns an error if the configuration is invalid, the connection fails, or
 // the recognizer is already running.
@@ -531,6 +588,16 @@ func (r *SpeechRecognizer) Start() error {
 func (r *SpeechRecognizer) validateOptions() error {
 	if err := validateSpeakerDiarization(r.speakerDiarization, r.speakerNumber, r.speakerRoles, r.voiceprintIDs); err != nil {
 		return err
+	}
+	switch r.enableSpeakerContext {
+	case 0, SpeakerContextSync, SpeakerContextAsync:
+	default:
+		return common.NewASRErrorf(common.ErrCodeInvalidParam,
+			"EnableSpeakerContext must be 0 (off), 1 (sync) or 2 (async), got %d", r.enableSpeakerContext)
+	}
+	if r.enableSpeakerContext != 0 && r.speakerDiarization == 0 {
+		return common.NewASRError(common.ErrCodeInvalidParam,
+			"EnableSpeakerContext requires SetSpeakerDiarization(1) or (3)")
 	}
 	if err := validateVadTuning(r.vadLevel, r.noiseThreshold); err != nil {
 		return err
@@ -703,6 +770,8 @@ func (r *SpeechRecognizer) connect() error {
 	sigParams.InputSampleRate = r.inputSampleRate
 	sigParams.SpeakerDiarization = r.speakerDiarization
 	sigParams.SpeakerNumber = r.speakerNumber
+	sigParams.EnableSpeakerContext = r.enableSpeakerContext
+	sigParams.SpeakerContextID = r.speakerContextID
 	sigParams.SpeakerRoles = r.speakerRoles
 	sigParams.VoiceprintIDs = r.voiceprintIDs
 	sigParams.Language = r.language
@@ -796,6 +865,14 @@ func (r *SpeechRecognizer) readLoop() {
 			// Non-terminal: the session continues, so do not finish here.
 			r.safeOnFail(nil, common.NewASRErrorf(common.ErrCodeReadFailed, "unmarshal response failed: %v", err))
 			continue
+		}
+
+		if resp.SpeakerContinue != nil {
+			// The first response carries the resumable-diarization handshake;
+			// keep it for SpeakerContinue(). The synthesized
+			// OnRecognitionStart fired before this frame, so callback-style
+			// callers cannot see it there.
+			r.speakerContinue.Store(resp.SpeakerContinue)
 		}
 
 		if resp.Code != 0 {

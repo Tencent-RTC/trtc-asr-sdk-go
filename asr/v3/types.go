@@ -38,6 +38,68 @@ const (
 	SpeakerDiarizationVoiceprint = 3
 )
 
+// Speaker-context modes for the enable_speaker_context parameter. They turn
+// speaker diarization into a resumable ("断点续传") session: the server stores
+// the stable speaker anchors of the session and hands back an opaque
+// speaker_context_id, which a later connection passes in to keep the same
+// speakers on the same IDs. Both modes require speaker diarization.
+const (
+	// SpeakerContextOff disables speaker-context persistence (default).
+	SpeakerContextOff = 0
+	// SpeakerContextSync declares the intent to save/resume the speaker
+	// context and makes the first server response wait for the stored
+	// snapshot, so it reports how the session started through
+	// SpeakerContinue.ContinueStatus ("fresh" / "resumed" / "degraded") and
+	// carries the authoritative speaker_context_id.
+	SpeakerContextSync = 1
+	// SpeakerContextAsync declares the same intent but lets the server answer
+	// the handshake before the snapshot is loaded: the first response carries
+	// the speaker_context_id but never a continue status.
+	SpeakerContextAsync = 2
+)
+
+// ContinueStatus values of SpeakerContinue.ContinueStatus.
+const (
+	// ContinueStatusFresh means no stored speaker context was applied: the
+	// session starts from scratch and SpeakerContextID is the ID to persist.
+	ContinueStatusFresh = "fresh"
+	// ContinueStatusResumed means the speaker anchors stored under the
+	// requested speaker_context_id were restored; speaker IDs continue from
+	// the previous session.
+	ContinueStatusResumed = "resumed"
+	// ContinueStatusDegraded means a stored context was requested but could
+	// not be applied (load or restore failure). The session keeps running as
+	// a new one and speaker IDs may restart.
+	ContinueStatusDegraded = "degraded"
+	// ContinueStatusDisabled means the server did not persist the speaker
+	// context for this session.
+	ContinueStatusDisabled = "disabled"
+)
+
+// SpeakerContinue is the speaker-context handshake result carried by the
+// first server response (`speaker_continue`). It is absent unless the session
+// set EnableSpeakerContext.
+//
+// Persist SpeakerContextID on the client side and pass it back through
+// SetSpeakerContextID when reconnecting within its lifetime (24h by default);
+// the response of a later session is authoritative, so always overwrite the
+// stored value. Callers must wait for the first response before sending
+// audio: with SpeakerContextSync and a stored ID the server answers only
+// after the snapshot has been applied.
+type SpeakerContinue struct {
+	// ContinueStatus is one of ContinueStatusFresh / ContinueStatusResumed /
+	// ContinueStatusDegraded / ContinueStatusDisabled. It is empty in
+	// SpeakerContextAsync mode, where the server answers before the snapshot
+	// is loaded. Treat unknown values as "no information".
+	ContinueStatus string `json:"continue_status,omitempty"`
+
+	// SpeakerContextID is the opaque context id of this speaker session. Pass
+	// it back with SetSpeakerContextID to resume the same speaker identities
+	// in a new connection; it is not a credential and is scoped to the
+	// SdkAppID that issued it.
+	SpeakerContextID string `json:"speaker_context_id,omitempty"`
+}
+
 // NewCredential creates a credential for the v3 API. v3 uses SdkAppID as the
 // only customer dimension and does not need the Tencent Cloud AppID.
 func NewCredential(sdkAppID int, secretKey string) *common.Credential {

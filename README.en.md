@@ -54,7 +54,7 @@ One WebSocket connection is one stream; `voice_id` is both the stream identity a
 | `usersig` | string | yes | TRTC signature; identifier = the current `voice_id` (the SDK signs with that value) |
 
 - **There is no `request_id` in realtime**: it belongs to the one-request-one-transaction HTTP interfaces (below).
-- `voice_id` appears both in the URL (`?voice_id=`) and in `params.voice_id` (keep them equal, or omit the param); max 128 characters. The SDK generates a UUID by default and `SetVoiceID` overrides it; a conflict with a live stream returns `4001`.
+- `voice_id` appears both in the URL (`?voice_id=`) and in `params.voice_id` (keep them equal, or omit the param); max 128 characters. The SDK generates a UUID by default and `SetVoiceID` overrides it; the client must keep voice_id unique — the server currently does not reject a duplicated voice_id, and each connection runs an independent recognition session.
 - One stream carries one signature, issued per connection — a reconnect signs again, so there is no expiry to manage yourself.
 
 Within **3 seconds** of the WebSocket handshake, send one start frame:
@@ -150,21 +150,24 @@ sequenceDiagram
 | `hotword_list` | string | empty | Inline hotwords: `word\|weight` comma-separated; word <=30 chars, weight 1–11 or 100 |
 | `speaker_diarization` | int | `0` | Diarization: `0` off / `1` anonymous clustering / `3` voiceprint roles |
 | `speaker_number` | int | `0` | Speaker count hint; `0` = auto detect |
+| `enable_speaker_context` | int | `0` | Resumable diarization ("speaker context"): `0` off / `1` report the restore status synchronously / `2` answer the handshake immediately (id only). Requires `speaker_diarization=1/3` |
+| `speaker_context_id` | string | empty | Context id returned by the previous first response; resumes the same speaker numbers |
 | `voiceprint_ids` | []string | empty | Enrolled voiceprint IDs (only `speaker_diarization=3`) |
 | `speaker_roles` | []object | empty | Temporary voiceprints: `[{"audio_url":"...","role_name":"..."}]` (only mode 3); `role_name` is echoed in results |
 | `context` | object | empty | Recognition context: `{"text":"background","terms":["term"],"general":[{"key":"domain","value":"Meeting"}]}` |
 
-> How `context` is consumed depends on the engine: LLM-class engines can use `text` / `terms` / `general`, while traditional engines degrade `terms` to hotwords and ignore the rest. With `speaker_diarization=1/3` the server forces VAD on and adjusts `word_info`.
+> How `context` is consumed depends on the engine: LLM-class engines can use `text` / `terms` / `general`, while traditional engines degrade `terms` to hotwords and ignore the rest. With `speaker_diarization=1/3` the server forces VAD on and adjusts `word_info`. `enable_speaker_context` only applies when diarization is on; the SDK rejects the combination locally otherwise.
 
 ### Realtime response
 
-The downlink shape is identical to v2 (`code` / `message` / `voice_id` / `message_id` / `result` / `final`):
+The downlink shape is identical to v2 (`code` / `message` / `voice_id` / `message_id` / `result` / `final`); with the speaker context enabled the first response additionally carries `speaker_continue`:
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `code` / `message` | Integer / String | Status code and text; `0` means success |
 | `voice_id` / `message_id` | String | Stream ID / message ID |
 | `final` | Integer | `1` marks the end-of-stream frame |
+| `speaker_continue` | Object | Returned in the first response only when `enable_speaker_context` is on; see [Resumable speaker diarization](#resumable-speaker-diarization) |
 | `result.slice_type` | Integer | `0` sentence begin, `1` interim, `2` final sentence |
 | `result.index` | Integer | Sentence index |
 | `result.start_time` / `end_time` | Integer | Result time range (ms) |
@@ -330,7 +333,7 @@ Response (`v3.TranscriptionStatus`):
 | code | Meaning | Typical trigger |
 |------|---------|-----------------|
 | `4000` | Audio sent too fast | At most 3s of audio per 1s wall-clock |
-| `4001` | Invalid parameter | params validation failed / `voice_id` conflict |
+| `4001` | Invalid parameter | params validation failed |
 | `4002` | Authentication failed | missing `auth` / bad `usersig` / querying another account's task |
 | `4003` | Service not activated | scheduling refused |
 | `4006` | Concurrency limit | account concurrency or connection limit |
@@ -388,6 +391,52 @@ func (l *MyListener) OnSentenceEnd(resp *v3.SpeechRecognitionResponse) {
     }
 }
 ```
+
+### Resumable speaker diarization
+
+By default `speaker_id` is only valid inside one connection: a reconnect or a later recording segment numbers speakers from `1` again. With the **speaker context** enabled the server persists the speaker identities it has settled on (voiceprint anchors) and returns an opaque `speaker_context_id`; passing that id back on the next connection keeps the same people on their previous `speaker_id`.
+
+Usage (`speaker_diarization` must be on as well):
+
+```go
+// First connection: declare that the speaker context should be saved/resumed.
+recognizer.SetSpeakerDiarization(v3.SpeakerDiarizationCluster)
+recognizer.SetEnableSpeakerContext(v3.SpeakerContextSync) // 1=sync, 2=async (see below)
+recognizer.Start()
+if sc := recognizer.SpeakerContinue(); sc != nil {        // also delivered to OnRecognitionStart
+    save("speaker_context_id", sc.SpeakerContextID)       // persist it for the next connection
+}
+
+// After a reconnect: pass the stored id back (valid for 24h).
+recognizer.SetSpeakerDiarization(v3.SpeakerDiarizationCluster)
+recognizer.SetEnableSpeakerContext(v3.SpeakerContextSync)
+recognizer.SetSpeakerContextID(load("speaker_context_id"))
+recognizer.Start() // continue_status=resumed means the speaker anchors were restored
+```
+
+`speaker_continue` in the first response:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `continue_status` | String | `fresh` new session (a newly issued id is returned) / `resumed` speaker anchors restored / `degraded` a restore was requested but failed (the session continues as a new one, speaker numbers may restart) / `disabled` the server did not persist a context. Not returned in async mode (`2`) |
+| `speaker_context_id` | String | Context id; pass it back with `SetSpeakerContextID`. **The latest first response is authoritative** — overwrite your stored value when the server issues a new one |
+
+The two modes:
+
+| `enable_speaker_context` | Behaviour |
+|-------|-----------|
+| `1` (sync) | When a `speaker_context_id` is supplied the server applies the stored snapshot before answering, so the first response reports the real `continue_status`; a first issue answers `fresh` immediately |
+| `2` (async) | The first response does not wait for the snapshot: it only carries the `speaker_context_id` (no `continue_status`), and the server restores in the background. Keep sending the same id for the same logical session (the server never re-issues it, even if the snapshot expired) |
+
+Constraints and semantics:
+
+- Resuming requires both `enable_speaker_context=1/2` and the stored `speaker_context_id` on connect; **a missing, expired or malformed id simply starts a new session** instead of failing.
+- What is restored is the **speaker identity**: recognition and diarization timelines of the new connection start at `0`; ASR text context and audio missed while disconnected are not recovered, and speakers that were not yet settled may be renumbered.
+- Both a normal `Stop()` and an abnormal disconnect save the snapshot; snapshots live for 24h by default and are not deleted on restore.
+- Only one active connection may use a given `speaker_context_id` at a time; concurrent reuse has no consistency guarantee.
+- On v3, `Start()` waits for the snapshot only in sync mode with a `speaker_context_id`, and that path's first-response budget is 15s instead of 5s. A first issue, async mode, and context-off stay at 5s. v2 `Start()` returns as soon as the WebSocket is up; it does not apply this budget.
+
+> **The v2 realtime API supports speaker context too**: query parameters `enable_speaker_context` (`1` sync / `2` async) and `speaker_context_id`, with the same `speaker_continue` on the first response. The Go API is `SetEnableSpeakerContext` / `SetSpeakerContextID` / `SpeechRecognizer.SpeakerContinue()`. v2 synthesizes `OnRecognitionStart` locally, before the server's first response, so the handshake is only available from the getter. In sync mode with a stored id, wait until `SpeakerContinue()` is non-nil before `Write`: the server does not read audio until the snapshot has been applied.
 
 ### VAD tuning (noise_threshold / vad_level)
 
@@ -516,6 +565,8 @@ Realtime recognition (`v3.SpeechRecognizer`); setters mirror the v2 client:
 | `SetSpeakerNumber(n)` | Speaker count hint | 0 (auto) |
 | `SetSpeakerRoles(roles)` | Temporary voiceprints (mode 3 only) | - |
 | `SetVoiceprintIds(ids)` | Enrolled voiceprint IDs (mode 3 only) | - |
+| `SetEnableSpeakerContext(m)` | Resumable diarization: 0 off / 1 sync / 2 async | 0 (off) |
+| `SetSpeakerContextID(id)` | Resume a previous `speaker_context_id` | - |
 | `SetLanguage(lang)` | Language hint | auto detect |
 | `SetVoiceId(id)` | Custom voice_id (UserSig is bound to it) | auto UUID |
 | `SetContext(ctx)` | Recognition context (`text` / `terms` / `general`) | - |

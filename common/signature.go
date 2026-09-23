@@ -106,6 +106,20 @@ type SignatureParams struct {
 	// VoiceprintIDs lists pre-registered voiceprint IDs, serialized into the
 	// voiceprintids JSON array. Only sent when SpeakerDiarization is 3.
 	VoiceprintIDs []string
+
+	// EnableSpeakerContext makes the diarization session resumable
+	// ("说话人分离断点续传"): the server stores the settled speaker anchors and
+	// hands back an opaque speaker_context_id on the first response, which a
+	// later connection passes back to keep the same speakers on the same ids.
+	// 0=off (default), 1=report the restore status on the first response,
+	// 2=answer with the id only (the restore happens in the background).
+	// Requires SpeakerDiarization 1 or 3.
+	EnableSpeakerContext int
+
+	// SpeakerContextID carries the id issued by a previous session. Only sent
+	// together with EnableSpeakerContext; an expired or unknown id simply
+	// starts a new session instead of failing.
+	SpeakerContextID string
 }
 
 // NewSignatureParams creates SignatureParams with sensible defaults.
@@ -214,6 +228,12 @@ func (p *SignatureParams) toMap() map[string]string {
 		m["speaker_diarization"] = fmt.Sprintf("%d", p.SpeakerDiarization)
 		if p.SpeakerNumber != 0 {
 			m["speaker_number"] = fmt.Sprintf("%d", p.SpeakerNumber)
+		}
+	}
+	if p.EnableSpeakerContext != 0 {
+		m["enable_speaker_context"] = fmt.Sprintf("%d", p.EnableSpeakerContext)
+		if p.SpeakerContextID != "" {
+			m["speaker_context_id"] = p.SpeakerContextID
 		}
 	}
 	// speaker_roles / voiceprintids only apply to the voiceprint role

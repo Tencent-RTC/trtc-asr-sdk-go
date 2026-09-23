@@ -60,6 +60,33 @@ func validateSpeakerDiarization(mode, speakerNumber int, roles []SpeakerRole, vo
 	return nil
 }
 
+// validateSpeakerContext checks the speaker-context ("断点续传") options.
+// enable_speaker_context accepts 0 (off), 1 (sync) or 2 (async); the server
+// silently normalizes anything else to off, but a caller that meant to enable
+// resumption is better served by an immediate error than by a session that
+// quietly never returns a speaker_context_id.
+//
+// The server ignores the speaker-context parameters entirely when speaker
+// diarization is off, so that combination is a caller mistake as well
+// (mirroring how SpeakerRoles/VoiceprintIDs require mode 3).
+//
+// SpeakerContextID itself is not format-checked on purpose: the server treats
+// an unknown or expired id as "start a new session", so a stale value degrades
+// gracefully instead of failing the connection.
+func validateSpeakerContext(mode, diarization int) error {
+	switch mode {
+	case SpeakerContextOff, SpeakerContextSync, SpeakerContextAsync:
+	default:
+		return common.NewASRErrorf(common.ErrCodeInvalidParam,
+			"EnableSpeakerContext must be 0 (off), 1 (sync) or 2 (async), got %d", mode)
+	}
+	if mode != SpeakerContextOff && diarization == SpeakerDiarizationOff {
+		return common.NewASRError(common.ErrCodeInvalidParam,
+			"EnableSpeakerContext requires SpeakerDiarization=1 or 3")
+	}
+	return nil
+}
+
 // validateEnrollmentURL requires an absolute http(s) URL for enrollment audio.
 // The URL is fetched by the ASR service, not by the SDK: this client only
 // rejects inputs that can never work (bad syntax, non-http scheme, no host).

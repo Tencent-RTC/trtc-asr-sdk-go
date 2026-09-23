@@ -7,6 +7,14 @@
 //	go run main.go -f ../test.pcm
 //	go run main.go -f ../test.pcm -e bigmodel -lang zh -diarization 1 -word-info 1
 //
+// Speaker diarization can be made resumable across connections ("断点续传"):
+//
+//	# 1st connection: keep the printed speaker_context_id
+//	go run main.go -f ../test.pcm -e bigmodel -diarization 1 -speaker-context 1
+//	# after a reconnect (or any later connection within 24h): reuse it
+//	go run main.go -f ../test.pcm -e bigmodel -diarization 1 -speaker-context 1 \
+//	  -speaker-context-id <speaker_context_id>
+//
 // Prerequisites:
 //  1. Create a TRTC application: https://console.cloud.tencent.com/trtc/app
 //     (SDKAppID + SDK secret key from the application overview page; v3 does
@@ -46,6 +54,9 @@ type MyListener struct {
 
 func (l *MyListener) OnRecognitionStart(resp *v3.SpeechRecognitionResponse) {
 	log.Printf("Recognition started, voice_id: %s", resp.VoiceID)
+	if sc := resp.SpeakerContinue; sc != nil {
+		log.Printf("Speaker context: status=%q id=%s", sc.ContinueStatus, sc.SpeakerContextID)
+	}
 }
 
 func (l *MyListener) OnSentenceBegin(resp *v3.SpeechRecognitionResponse) {
@@ -83,6 +94,10 @@ func main() {
 	roleSpec := flag.String("roles", "", "voiceprint roles for -diarization=3: \"name=https://url,name2=https://url2\"")
 	wordInfo := flag.Int("word-info", 0, "word-level timestamps: 0=off, 1=on, 2=with punctuation")
 	hotwordList := flag.String("hotwords", "", "temporary hotword list: \"word|weight,word|weight\"")
+	speakerContext := flag.Int("speaker-context", 0,
+		"resumable speaker diarization: 0=off, 1=sync (report resumed/degraded), 2=async (return the id only)")
+	speakerContextID := flag.String("speaker-context-id", "",
+		"speaker_context_id printed by an earlier run: resume the same speaker identities")
 	flag.Parse()
 
 	if *engine == "" {
@@ -125,11 +140,27 @@ func main() {
 			recognizer.SetSpeakerRoles(roles)
 		}
 	}
+	// Speaker-context persistence requires speaker diarization; the SDK rejects
+	// the combination locally otherwise.
+	if *speakerContext != 0 {
+		recognizer.SetEnableSpeakerContext(*speakerContext)
+	}
+	if *speakerContextID != "" {
+		recognizer.SetSpeakerContextID(*speakerContextID)
+	}
 
 	// v3 Start waits for the server ack: auth/params errors (4001/4002/...)
-	// surface here synchronously.
+	// surface here synchronously. While resuming a speaker context the ack
+	// arrives once the server has applied the stored snapshot.
 	if err := recognizer.Start(); err != nil {
 		log.Fatalf("Failed to start recognizer: %v", err)
+	}
+
+	// The handshake result is also available without a callback. Persist the
+	// id: passing it back on the next connection keeps speaker IDs stable.
+	if sc := recognizer.SpeakerContinue(); sc != nil {
+		log.Printf("Speaker context id: %s (status: %q) — reuse it with -speaker-context-id",
+			sc.SpeakerContextID, sc.ContinueStatus)
 	}
 
 	file, err := os.Open(*filePath)
