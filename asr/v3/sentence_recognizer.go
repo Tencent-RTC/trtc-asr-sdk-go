@@ -97,11 +97,6 @@ type TranscribeRequest struct {
 
 	// SpeakerNumber hints the expected number of speakers. 0: auto (default).
 	SpeakerNumber int `json:"speaker_number,omitempty"`
-
-	// Context is the recognition context (background text, terms, domain
-	// key-values). LLM-class engines consume it; traditional engines degrade
-	// Context.Terms to hotwords.
-	Context *Context `json:"context,omitempty"`
 }
 
 // transcribeParamsWire adds the SDK self-identification to the params block.

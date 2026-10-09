@@ -124,22 +124,6 @@ type offlineEnvelope struct {
 
 // ===== shared params types =====
 
-// ContextKV is a domain key-value pair of Context.General
-// (e.g. {"key":"domain","value":"Healthcare"}).
-type ContextKV struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
-// Context is the recognition context, aligned with Soniox / Volcengine
-// semantics. LLM-class engines can consume all three parts; traditional
-// engines degrade Terms to hotwords and ignore Text/General.
-type Context struct {
-	Text    string      `json:"text,omitempty"`    // background / preceding text
-	Terms   []string    `json:"terms,omitempty"`   // domain terms
-	General []ContextKV `json:"general,omitempty"` // domain key-values
-}
-
 // SpeakerRole is a temporary voiceprint enrollment entry used with
 // speaker_diarization=3. RoleName is echoed back as speaker_name /
 // speaker_role_name on matched results.

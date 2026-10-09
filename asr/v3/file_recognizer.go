@@ -128,10 +128,6 @@ type CreateTranscriptionRequest struct {
 
 	// Language forces the audio language on engines that support it.
 	Language string `json:"language,omitempty"`
-
-	// Context is the recognition context (background text, terms, domain
-	// key-values).
-	Context *Context `json:"context,omitempty"`
 }
 
 // createTranscriptionParamsWire adds the SDK self-identification to the

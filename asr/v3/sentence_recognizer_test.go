@@ -102,7 +102,6 @@ func TestTranscribeWire(t *testing.T) {
 		FilterPunc:      1,
 		InputSampleRate: 8000,
 		CustomizationID: "cust-1",
-		Context:         &Context{Text: "bg", Terms: []string{"ASR"}},
 	})
 	if err != nil {
 		t.Fatalf("Recognize failed: %v", err)
@@ -158,8 +157,8 @@ func TestTranscribeWire(t *testing.T) {
 	if _, ok := params["sdk_info"].(map[string]interface{}); !ok {
 		t.Error("params.sdk_info missing")
 	}
-	if _, ok := params["context"].(map[string]interface{}); !ok {
-		t.Error("params.context missing")
+	if _, ok := params["context"]; ok {
+		t.Errorf("params.context = %v, want absent", params["context"])
 	}
 	if params["data"] != base64.StdEncoding.EncodeToString([]byte("pcm-data")) {
 		t.Errorf("params.data = %v", params["data"])

@@ -257,7 +257,6 @@ func TestStartFrameWire(t *testing.T) {
 	r.SetVoiceprintIDs([]string{"vp-1"})
 	r.SetEnableSpeakerContext(SpeakerContextSync)
 	r.SetSpeakerContextID(strings.Repeat("a", 64))
-	r.SetContext(&Context{Text: "bg", Terms: []string{"ASR"}, General: []ContextKV{{Key: "domain", Value: "Meeting"}}})
 
 	if err := r.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -357,10 +356,8 @@ func TestStartFrameWire(t *testing.T) {
 	if _, bad := role["RoleName"]; bad {
 		t.Error("speaker_roles element must be snake_case, found RoleName")
 	}
-	// context block passes through.
-	ctx, ok := params["context"].(map[string]interface{})
-	if !ok || ctx["text"] != "bg" {
-		t.Errorf("params.context = %v", params["context"])
+	if _, ok := params["context"]; ok {
+		t.Errorf("params.context = %v, want absent", params["context"])
 	}
 	// sdk_info telemetry is present (survives in server dumps).
 	info, ok := params["sdk_info"].(map[string]interface{})

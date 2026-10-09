@@ -153,9 +153,8 @@ sequenceDiagram
 | `speaker_context_id` | string | 空 | 上次首响应返回的上下文 ID，用于续传同一批说话人的编号 |
 | `voiceprint_ids` | []string | 空 | 已注册声纹 ID（仅 `speaker_diarization=3`） |
 | `speaker_roles` | []object | 空 | 临时声纹：`[{"audio_url":"...","role_name":"..."}]`（仅模式 3），`role_name` 会回显到结果 |
-| `context` | object | 空 | 识别上下文：`{"text":"背景文本","terms":["术语"],"general":[{"key":"domain","value":"Meeting"}]}` |
 
-> `context` 消费方式与引擎能力相关：大模型类引擎可用 `text`/`terms`/`general`，传统引擎仅把 `terms` 降级为热词。`speaker_diarization=1/3` 时服务端会强制开启 VAD 并调整 `word_info`。`enable_speaker_context` 只在开启说话人分离时有效，SDK 会在本地拒绝「只开断点续传、不开分离」的组合。
+> `speaker_diarization=1/3` 时服务端会强制开启 VAD 并调整 `word_info`。`enable_speaker_context` 只在开启说话人分离时有效，SDK 会在本地拒绝「只开断点续传、不开分离」的组合。
 
 ### 在线响应
 
@@ -217,7 +216,6 @@ sequenceDiagram
 | `language` | string | 否 | 指定识别语言，留空自动检测 |
 | `speaker_diarization` | int | 否 | 说话人分离：`0` 关 / `1` 聚类 / `3` 声纹角色 |
 | `speaker_number` | int | 否 | 说话人数量提示，`0` 自动 |
-| `context` | object | 否 | 识别上下文（结构同在线） |
 
 **限制**：音频时长 ≤ 60s，文件大小 ≤ 3MB。
 
@@ -281,7 +279,6 @@ sequenceDiagram
 | `vad_level` | int | 否 | VAD 场景档：`0` 高召回 / `1` 远场过滤 |
 | `noise_threshold` | float | 否 | 噪声阈值 `0`~`4`（`0` 是合法取值，Go 里用 `*float64` 区分未设置） |
 | `language` | string | 否 | 指定识别语言，留空自动检测 |
-| `context` | object | 否 | 识别上下文（结构同在线） |
 
 响应：`{"code":0,"message":"success","request_id":"...","transcription_id":"..."}`。
 
@@ -579,7 +576,6 @@ fmt.Println(status.Result, status.AudioDuration, status.ResultDetail)
 | `SetSpeakerContextID(id)` | 续传上次返回的 `speaker_context_id` | - |
 | `SetLanguage(lang)` | 指定识别语言 | 自动检测 |
 | `SetVoiceID(id)` | 自定义 voice_id（UserSig 自动绑定该值） | 自动 UUID |
-| `SetContext(ctx)` | 识别上下文（`text`/`terms`/`general`） | - |
 
 > v3 在线不支持 v2 的 `customization_id` / `replace_text_id`（v3 协议未包含）。
 

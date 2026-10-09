@@ -154,9 +154,8 @@ sequenceDiagram
 | `speaker_context_id` | string | empty | Context id returned by the previous first response; resumes the same speaker numbers |
 | `voiceprint_ids` | []string | empty | Enrolled voiceprint IDs (only `speaker_diarization=3`) |
 | `speaker_roles` | []object | empty | Temporary voiceprints: `[{"audio_url":"...","role_name":"..."}]` (only mode 3); `role_name` is echoed in results |
-| `context` | object | empty | Recognition context: `{"text":"background","terms":["term"],"general":[{"key":"domain","value":"Meeting"}]}` |
 
-> How `context` is consumed depends on the engine: LLM-class engines can use `text` / `terms` / `general`, while traditional engines degrade `terms` to hotwords and ignore the rest. With `speaker_diarization=1/3` the server forces VAD on and adjusts `word_info`. `enable_speaker_context` only applies when diarization is on; the SDK rejects the combination locally otherwise.
+> With `speaker_diarization=1/3` the server forces VAD on and adjusts `word_info`. `enable_speaker_context` only applies when diarization is on; the SDK rejects the combination locally otherwise.
 
 ### Realtime response
 
@@ -218,7 +217,6 @@ sequenceDiagram
 | `language` | string | no | Language hint; empty = auto detect |
 | `speaker_diarization` | int | no | Diarization: `0` off / `1` cluster / `3` voiceprint roles |
 | `speaker_number` | int | no | Speaker count hint; `0` = auto |
-| `context` | object | no | Recognition context (same shape as realtime) |
 
 **Limits**: audio <= 60s, file <= 3MB.
 
@@ -282,7 +280,6 @@ sequenceDiagram
 | `vad_level` | int | no | VAD profile: `0` high recall / `1` far-field |
 | `noise_threshold` | float | no | Noise threshold `0`~`4` (`0` is valid; use `*float64` to mean "unset") |
 | `language` | string | no | Language hint; empty = auto detect |
-| `context` | object | no | Recognition context (same shape as realtime) |
 
 Response: `{"code":0,"message":"success","request_id":"...","transcription_id":"..."}`.
 
@@ -569,7 +566,6 @@ Realtime recognition (`v3.SpeechRecognizer`); setters mirror the v2 client:
 | `SetSpeakerContextID(id)` | Resume a previous `speaker_context_id` | - |
 | `SetLanguage(lang)` | Language hint | auto detect |
 | `SetVoiceId(id)` | Custom voice_id (UserSig is bound to it) | auto UUID |
-| `SetContext(ctx)` | Recognition context (`text` / `terms` / `general`) | - |
 
 > v3 realtime does not carry the v2 `customization_id` / `replace_text_id`.
 

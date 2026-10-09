@@ -241,7 +241,6 @@ type onlineParams struct {
 	SpeakerContextID     string        `json:"speaker_context_id,omitempty"`
 	VoiceprintIDs        []string      `json:"voiceprint_ids,omitempty"`
 	SpeakerRoles         []SpeakerRole `json:"speaker_roles,omitempty"`
-	Context              *Context      `json:"context,omitempty"`
 
 	// SDKInfo carries the SDK self-identification (platform / sdk_lang /
 	// sdk_type / version). It is not a protocol field: the gateway replays the
@@ -299,7 +298,6 @@ type SpeechRecognizer struct {
 	voiceprintIDs      []string
 	voiceID            string
 	language           string
-	context            *Context
 
 	// Speaker context ("断点续传"): enableSpeakerContext is the requested mode
 	// (0/1/2), speakerContextID the id issued by an earlier session.
@@ -548,13 +546,6 @@ func (r *SpeechRecognizer) SetVoiceID(id string) {
 // SetLanguage sets the language hint (e.g. "zh", "en", "auto").
 func (r *SpeechRecognizer) SetLanguage(lang string) {
 	r.language = lang
-}
-
-// SetContext sets the recognition context (background text, domain terms,
-// domain key-values). LLM-class engines consume all parts; traditional
-// engines degrade Context.Terms to hotwords.
-func (r *SpeechRecognizer) SetContext(ctx *Context) {
-	r.context = ctx
 }
 
 // SetEndpoint overrides the WebSocket origin (for testing against a mock
@@ -941,7 +932,6 @@ func (r *SpeechRecognizer) buildStartFrame(userSig string) ([]byte, error) {
 		SpeakerContextID:     r.speakerContextIDForWire(),
 		VoiceprintIDs:        r.voiceprintIDs,
 		SpeakerRoles:         r.speakerRoles,
-		Context:              r.context,
 		SDKInfo:              common.SDKReportParams(),
 	}
 	if r.inputSampleRate != 0 {
