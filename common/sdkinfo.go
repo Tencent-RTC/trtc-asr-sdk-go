@@ -21,7 +21,7 @@ import (
 const (
 	// SDKVersion is the released version of this SDK. Keep in sync with the
 	// version recorded in CHANGELOG.md.
-	SDKVersion = "2.0.0"
+	SDKVersion = "1.4.0"
 
 	// SDKLanguage identifies the SDK implementation language.
 	SDKLanguage = "go"
