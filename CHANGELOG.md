@@ -7,11 +7,23 @@
 
 ## [未发布]
 
-## [2.0.0] - 2026-10-09
-
 ### 变更
 
 - 识别上下文 `context` 对外暂不支持：实时识别移除 setter（`SetContext`），一句话识别与录音文件请求不再携带该字段。
+  该能力从未对外开放，按 v1 小版本发布，导入路径不变。
+
+### 修复
+
+- 重新以 v1.x 发布 v2.0.0 的内容。v2.0.0 tag 的 go.mod 模块路径没有 `/v2` 后缀，
+  `go get github.com/Tencent-RTC/trtc-asr-sdk-go@v2.0.0` 报
+  `module path must match major version`，任何客户都无法安装；该 tag 作废，请使用本版本。
+- 发版脚本与 CI 新增模块路径检查（`scripts/check-module-path.sh`）：主版本号 ≥2
+  而 go.mod 没有对应 `/vN` 时拒绝打 tag；推 tag 后经 proxy.golang.org 实际
+  `go get` 并编译一次（`.github/workflows/release-check.yml`）。
+
+## [2.0.0] - 2026-10-09 [作废]
+
+无法通过 `go get` 安装（见 1.4.0），内容已在 1.4.0 重新发布。
 
 ## [1.3.0] - 2026-09-23
 

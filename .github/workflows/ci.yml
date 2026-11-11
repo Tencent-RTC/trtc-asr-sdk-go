@@ -44,6 +44,12 @@ jobs:
             exit 1
           fi
 
+      # Building inside the repo never exercises the module path rule; only an
+      # external `go get` of the tag does. Catch the mismatch at the release
+      # commit (SDKVersion bump), before a tag exists.
+      - name: Module path matches SDKVersion major
+        run: scripts/check-module-path.sh
+
       - name: Vet
         run: go vet ./...
 

@@ -64,6 +64,10 @@ PY
 
 echo "==> $CURRENT -> $VERSION"
 
+# A tag whose major does not match go.mod's module path cannot be fetched by
+# `go get` at all (v2.0.0 shipped that way); refuse before anything is written.
+"$ROOT/scripts/check-module-path.sh" "$VERSION"
+
 if [[ $DRY_RUN -eq 1 ]]; then
   echo "would update common/sdkinfo.go SDKVersion"
   echo "would stamp CHANGELOG.md as ## [$VERSION] - $DATE"

@@ -1,0 +1,67 @@
+name: Release check
+
+# Everything in ci.yml runs against the checked-out source, so it cannot see
+# what a customer sees. This job installs the pushed tag the way a customer
+# does - through the public module proxy and checksum database - and builds
+# against it. v2.0.0 passed every CI step and was still not installable.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  consume:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+          cache: false
+
+      - name: Tag matches module path
+        run: scripts/check-module-path.sh "${GITHUB_REF_NAME}"
+
+      - name: Tag matches SDKVersion
+        run: |
+          sdk="$(sed -n 's/^[[:space:]]*SDKVersion = "\(.*\)"$/\1/p' common/sdkinfo.go)"
+          if [ "v${sdk}" != "${GITHUB_REF_NAME}" ]; then
+            echo "tag ${GITHUB_REF_NAME} but common/sdkinfo.go SDKVersion is ${sdk}"
+            exit 1
+          fi
+
+      - name: go get the tag from proxy.golang.org and build
+        env:
+          GOPROXY: https://proxy.golang.org
+          GOFLAGS: -mod=mod
+        run: |
+          set -euo pipefail
+          module="$(sed -n 's/^module[[:space:]]\{1,\}\([^[:space:]]*\).*/\1/p' go.mod | head -n1)"
+          work="$(mktemp -d)"
+          cd "$work"
+          go mod init consumer
+          cat > main.go <<EOF
+          package main
+
+          import (
+          	_ "${module}/asr"
+          	_ "${module}/asr/v3"
+          	_ "${module}/common"
+          )
+
+          func main() {}
+          EOF
+          # The proxy fetches a new tag on first request; give it a few tries.
+          for i in 1 2 3 4 5; do
+            if go get "${module}@${GITHUB_REF_NAME}"; then
+              break
+            fi
+            [ "$i" = 5 ] && exit 1
+            sleep 30
+          done
+          go list -m "${module}"
+          go build ./...
