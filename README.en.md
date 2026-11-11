@@ -209,7 +209,6 @@ sequenceDiagram
 | `filter_punc` | int | no | Punctuation: `0` keep / `1` strip |
 | `convert_num_mode` | int | no | `0` off / `1` smart / `3` math |
 | `hotword_id` | string | no | Hotword list ID |
-| `customization_id` | string | no | Custom language model ID |
 | `hotword_list` | string | no | Inline hotword list |
 | `input_sample_rate` | int | no | PCM input sample rate (only 8000) |
 | `needvad` | int | no | Tri-state; omitted means server default, `0` off / `1` on |
@@ -268,14 +267,9 @@ sequenceDiagram
 | `voiceprint_ids` | array | no | Enrolled voiceprint IDs (mode 3 only) |
 | `speaker_roles` | array | no | Temporary voiceprints `[{"audio_url","role_name"}]` (mode 3 only) |
 | `hotword_id` | string | no | Hotword list ID |
-| `customization_id` | string | no | Custom language model ID |
 | `hotword_list` | string | no | Inline hotword list |
-| `keyword_lib_id_list` | array | no | Keyword library ID list |
-| `replace_text_id` | string | no | Replacement table ID |
 | `convert_num_mode` | int | no | Number conversion |
 | `filter_dirty` / `filter_punc` / `filter_modal` | int | no | Filters |
-| `sentence_max_length` | int | no | Maximum sentence length |
-| `extra` | string | no | Engine-specific extra string |
 | `vad_silence_ms` | int | no | Split silence threshold (ms) |
 | `vad_level` | int | no | VAD profile: `0` high recall / `1` far-field |
 | `noise_threshold` | float | no | Noise threshold `0`~`4` (`0` is valid; use `*float64` to mean "unset") |
